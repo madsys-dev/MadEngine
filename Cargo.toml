@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "async-spdk",
+    "mad_engine",
+]
