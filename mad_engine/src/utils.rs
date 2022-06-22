@@ -69,10 +69,15 @@ impl BitMap {
     }
 
     /// find first unset bit, return none if none
+    /// 
+    /// note that always less significant first
     pub fn find(&self) -> Option<u32>{
-
-
-
+        for (idx, word )in self.words.iter().enumerate(){
+            if *word != u64::MAX{
+                let bit_idx = word.trailing_ones();
+                return Some(idx as u32 * WORD_SIZE + bit_idx);
+            }
+        }
         None
     }
 }
