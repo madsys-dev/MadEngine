@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use crc::{Crc, CRC_32_ISO_HDLC};
+use serde::{Deserialize, Serialize};
 
 const WORD_SIZE: u32 = 64;
 const WORD_MASK: u32 = 63;
@@ -21,7 +22,7 @@ impl Hasher {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BitMap {
     count: u32,
     words: Vec<u64>,
@@ -69,11 +70,11 @@ impl BitMap {
     }
 
     /// find first unset bit, return none if none
-    /// 
+    ///
     /// note that always less significant first
-    pub fn find(&self) -> Option<u32>{
-        for (idx, word )in self.words.iter().enumerate(){
-            if *word != u64::MAX{
+    pub fn find(&self) -> Option<u32> {
+        for (idx, word) in self.words.iter().enumerate() {
+            if *word != u64::MAX {
                 let bit_idx = word.trailing_ones();
                 return Some(idx as u32 * WORD_SIZE + bit_idx);
             }
