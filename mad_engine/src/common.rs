@@ -1,7 +1,7 @@
 use crate::utils::*;
 use async_spdk::blob::{self, BlobId as SBlobId, Blobstore, IoChannel};
-use async_spdk::blob_bdev;
 use async_spdk::env::DmaBuf;
+use async_spdk::{blob_bdev, event};
 use rayon::vec;
 // use rayon::{ThreadPool, ThreadPoolBuilder};
 use rocksdb::DB;
@@ -35,10 +35,10 @@ pub struct ChunkMeta {
     location: Option<HashMap<u64, PagePos>>,
     // checksum algorithm type
     csum_type: String,
-    csum_data: u32,
+    csum_data: Vec<u32>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct PagePos {
     bid: SBlobId,
     offset: u64,
@@ -50,7 +50,7 @@ impl Default for ChunkMeta {
             size: 0,
             location: None,
             csum_type: "crc32".to_owned(),
-            csum_data: 0,
+            csum_data: vec![],
         }
     }
 }
@@ -66,7 +66,7 @@ impl Chunk {
 
 #[derive(Debug)]
 pub struct MadEngineHandle {
-    db: Arc<Mutex<DB>>,
+    db: Arc<DB>,
     engine: Arc<Mutex<MadEngine>>,
     pool: ThreadPool,
     bs: Arc<Blobstore>,
@@ -75,7 +75,7 @@ pub struct MadEngineHandle {
 impl MadEngineHandle {
     /// new basic MadEngineHandler
     pub async fn new(path: impl AsRef<Path>, device_name: &'_ str) -> Self {
-        let db = DB::open_default(path).unwrap();
+        let db = Arc::new(DB::open_default(path).unwrap());
         let mut bs_dev = blob_bdev::BlobStoreBDev::create(device_name).unwrap();
         let bs = Arc::new(blob::Blobstore::init(&mut bs_dev).await.unwrap());
         let pool = ThreadPool::new(NUM_THREAD);
@@ -84,10 +84,12 @@ impl MadEngineHandle {
         for _ in 0..num_init {
             let barrier = barrier.clone();
             let io_channel = bs.alloc_io_channel().unwrap();
+            let bs = bs.clone();
             let blob_id = bs.create_blob().await.unwrap();
             let blob = bs.open_blob(blob_id).await.unwrap();
             blob.resize(BLOB_SIZE).await.unwrap();
             blob.sync_metadata().await.unwrap();
+            let db = db.clone();
             // do the initialization work for each thread
             // use barrier to sync all of them
             pool.execute(move || {
@@ -98,6 +100,8 @@ impl MadEngineHandle {
                     br.tfree_list = HashMap::new();
                     let bitmap = BitMap::new(BLOB_SIZE * CLUSTER_SIZE);
                     br.tfree_list.insert(blob_id, bitmap);
+                    br.db = Some(db);
+                    br.bs = Some(bs);
                 });
                 barrier.wait();
             });
@@ -105,22 +109,49 @@ impl MadEngineHandle {
         barrier.wait();
         let total_cluster = bs.total_data_cluster_count();
         Self {
-            db: Arc::new(Mutex::new(db)),
+            db: db.clone(),
             engine: Arc::new(Mutex::new(MadEngine::new(total_cluster))),
             pool,
             bs,
         }
     }
 
+    /// read a chunk, this should return the read length
     pub async fn read(&self, name: String, offset: u64, data: &mut [u8]) {
-        let len = data.len();
+        let len = data.len() as u64;
         let start_page = offset / PAGE_SIZE;
-        let end_page = (offset + len as u64) / PAGE_SIZE;
-        // self.pool.install(move ||{
-        //     let io_channel = TLS.with(|t|{
-        //         let tmp = t.borrow_mut();
-        //     });
-        // });
+        let end_page = (offset + len - 1) / PAGE_SIZE;
+        self.pool.execute(move || {
+            TLS.with(|tls| {
+                let br = tls.borrow();
+                let chunk_meta = br.db.clone().unwrap().get(name).unwrap();
+                if chunk_meta.is_none() {
+                    unimplemented!("handle non-exist error");
+                }
+                let chunk_meta: ChunkMeta = serde_json::from_slice(
+                    &String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes(),
+                )
+                .unwrap();
+                let poses = (start_page..=end_page)
+                    .map(|p| {
+                        chunk_meta
+                            .location
+                            .clone()
+                            .unwrap()
+                            .get(&p)
+                            .unwrap()
+                            .clone()
+                    })
+                    .collect::<Vec<_>>();
+                // there should be a merger to merge succesive pages
+                let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
+                for pos in poses {
+                    let _ = event::spawn(async {
+                        let blob = br.bs.clone().unwrap().open_blob(pos.bid).await.unwrap();
+                    });
+                }
+            });
+        });
     }
 
     pub async fn write(&self, name: String, offset: u64, data: &[u8]) {
@@ -131,7 +162,7 @@ impl MadEngineHandle {
     ///
     /// store default data in RocksDB
     pub fn create(&self, name: String) -> Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.clone();
         let chunk_meta = ChunkMeta::default();
         db.put(name, serde_json::to_string(&chunk_meta).unwrap().as_bytes())
             .unwrap();
@@ -142,7 +173,7 @@ impl MadEngineHandle {
     ///
     /// todo: clear global freelist
     pub fn remove(&self, name: String) -> Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.clone();
         db.delete(name).unwrap();
         Ok(())
     }
@@ -203,6 +234,8 @@ pub struct ThreadData {
     // self owned free list, can 'steal' others' space
     tfree_list: HashMap<SBlobId, BitMap>,
     channel: Option<IoChannel>,
+    db: Option<Arc<DB>>,
+    bs: Option<Arc<Blobstore>>,
 }
 
 impl Default for ThreadData {
@@ -211,6 +244,8 @@ impl Default for ThreadData {
             tblobs: Vec::new(),
             tfree_list: HashMap::new(),
             channel: None,
+            db: None,
+            bs: None,
         }
     }
 }
