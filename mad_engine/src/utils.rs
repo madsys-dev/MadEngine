@@ -1,10 +1,16 @@
-use std::error::Error;
-
 use crc::{Crc, CRC_32_ISO_HDLC};
 use serde::{Deserialize, Serialize};
 
-const WORD_SIZE: u32 = 64;
-const WORD_MASK: u32 = 63;
+/// word size in bitmap
+const WORD_SIZE: u64 = 64;
+/// mask used to do some ceiling
+const WORD_MASK: u64 = 63;
+/// temporary number of thread, should be equal to #cpu_num?
+pub const NUM_THREAD: usize = 4;
+/// blob size in MB
+pub const BLOB_SIZE: u64 = 64;
+/// cluster size in pages
+pub const CLUSTER_SIZE: u64 = 256;
 
 pub struct Hasher {
     ck_sum: Crc<u32>,
@@ -24,30 +30,30 @@ impl Hasher {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BitMap {
-    count: u32,
+    count: u64,
     words: Vec<u64>,
 }
 
 impl BitMap {
-    pub fn new(count: u32) -> Self {
+    pub fn new(count: u64) -> Self {
         let word_count = (count + WORD_SIZE - 1) / WORD_SIZE;
         let words = vec![0; word_count as usize];
         Self { count, words }
     }
 
-    pub fn get_size(&self) -> u32 {
+    pub fn get_size(&self) -> u64 {
         self.count
     }
 
     /// parse an index to specific location
-    fn parse_index(index: u32) -> (u32, u32) {
+    fn parse_index(index: u64) -> (u64, u64) {
         let word_index = index / WORD_SIZE;
         let word_bit_index = index & WORD_MASK;
         (word_index, word_bit_index)
     }
 
     /// check index is set or not
-    pub fn get(&self, index: u32) -> bool {
+    pub fn get(&self, index: u64) -> bool {
         let (word_index, word_bit_index) = Self::parse_index(index);
         if self.words[word_index as usize] >> word_bit_index & 1 == 0 {
             return false;
@@ -56,14 +62,14 @@ impl BitMap {
     }
 
     /// set one bit
-    pub fn set(&mut self, index: u32) -> bool {
+    pub fn set(&mut self, index: u64) -> bool {
         let (word_index, word_bit_index) = Self::parse_index(index);
         self.words[word_index as usize] |= (1 << word_bit_index) as u64;
         true
     }
 
     /// clear one bit
-    pub fn clear(&mut self, index: u32) -> bool {
+    pub fn clear(&mut self, index: u64) -> bool {
         let (word_index, word_bit_index) = Self::parse_index(index);
         self.words[word_index as usize] &= !(1 << word_bit_index) as u64;
         true
@@ -72,11 +78,11 @@ impl BitMap {
     /// find first unset bit, return none if none
     ///
     /// note that always less significant first
-    pub fn find(&self) -> Option<u32> {
+    pub fn find(&self) -> Option<u64> {
         for (idx, word) in self.words.iter().enumerate() {
             if *word != u64::MAX {
-                let bit_idx = word.trailing_ones();
-                return Some(idx as u32 * WORD_SIZE + bit_idx);
+                let bit_idx = word.trailing_ones() as u64;
+                return Some(idx as u64 * WORD_SIZE + bit_idx);
             }
         }
         None

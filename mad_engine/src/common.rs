@@ -1,10 +1,13 @@
 use crate::utils::*;
 use async_spdk::blob::{self, BlobId as SBlobId, Blobstore, IoChannel};
 use async_spdk::blob_bdev;
-use rayon::{ThreadPool, ThreadPoolBuilder};
+use async_spdk::env::DmaBuf;
+use rayon::vec;
+// use rayon::{ThreadPool, ThreadPoolBuilder};
 use rocksdb::DB;
 use serde::{Deserialize, Serialize};
 use std::io::Result;
+use std::sync::Barrier;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -13,6 +16,9 @@ use std::{
     thread::ThreadId,
 };
 use thread_local::ThreadLocal;
+use threadpool::ThreadPool;
+
+const PAGE_SIZE: u64 = 0x1000;
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -63,30 +69,58 @@ pub struct MadEngineHandle {
     db: Arc<Mutex<DB>>,
     engine: Arc<Mutex<MadEngine>>,
     pool: ThreadPool,
-    bs: Blobstore,
-    channel: IoChannel,
+    bs: Arc<Blobstore>,
 }
 
 impl MadEngineHandle {
     /// new basic MadEngineHandler
     pub async fn new(path: impl AsRef<Path>, device_name: &'_ str) -> Self {
         let db = DB::open_default(path).unwrap();
-        let pool = ThreadPoolBuilder::new().num_threads(4).build().unwrap();
         let mut bs_dev = blob_bdev::BlobStoreBDev::create(device_name).unwrap();
-        let bs = blob::Blobstore::init(&mut bs_dev).await.unwrap();
+        let bs = Arc::new(blob::Blobstore::init(&mut bs_dev).await.unwrap());
+        let pool = ThreadPool::new(NUM_THREAD);
+        let num_init = NUM_THREAD;
+        let barrier = Arc::new(Barrier::new(num_init + 1));
+        for _ in 0..num_init {
+            let barrier = barrier.clone();
+            let io_channel = bs.alloc_io_channel().unwrap();
+            let blob_id = bs.create_blob().await.unwrap();
+            let blob = bs.open_blob(blob_id).await.unwrap();
+            blob.resize(BLOB_SIZE).await.unwrap();
+            blob.sync_metadata().await.unwrap();
+            // do the initialization work for each thread
+            // use barrier to sync all of them
+            pool.execute(move || {
+                TLS.with(move |f| {
+                    let mut br = f.borrow_mut();
+                    br.channel = Some(io_channel);
+                    br.tblobs = vec![blob_id];
+                    br.tfree_list = HashMap::new();
+                    let bitmap = BitMap::new(BLOB_SIZE * CLUSTER_SIZE);
+                    br.tfree_list.insert(blob_id, bitmap);
+                });
+                barrier.wait();
+            });
+        }
+        barrier.wait();
         let total_cluster = bs.total_data_cluster_count();
-        let channel = bs.alloc_io_channel().unwrap();
         Self {
             db: Arc::new(Mutex::new(db)),
             engine: Arc::new(Mutex::new(MadEngine::new(total_cluster))),
             pool,
             bs,
-            channel
         }
     }
 
     pub async fn read(&self, name: String, offset: u64, data: &mut [u8]) {
-        unimplemented!()
+        let len = data.len();
+        let start_page = offset / PAGE_SIZE;
+        let end_page = (offset + len as u64) / PAGE_SIZE;
+        // self.pool.install(move ||{
+        //     let io_channel = TLS.with(|t|{
+        //         let tmp = t.borrow_mut();
+        //     });
+        // });
     }
 
     pub async fn write(&self, name: String, offset: u64, data: &[u8]) {
@@ -168,4 +202,19 @@ pub struct ThreadData {
     tblobs: Vec<SBlobId>,
     // self owned free list, can 'steal' others' space
     tfree_list: HashMap<SBlobId, BitMap>,
+    channel: Option<IoChannel>,
+}
+
+impl Default for ThreadData {
+    fn default() -> Self {
+        Self {
+            tblobs: Vec::new(),
+            tfree_list: HashMap::new(),
+            channel: None,
+        }
+    }
+}
+
+thread_local! {
+    static TLS: RefCell<ThreadData> = RefCell::new(ThreadData::default());
 }
