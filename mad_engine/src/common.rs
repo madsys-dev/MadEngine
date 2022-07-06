@@ -25,7 +25,7 @@ pub struct Chunk {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChunkMeta {
-    // size in pages
+    // size in bytes
     size: u64,
     // page -> (BlobId, offset)
     location: Option<HashMap<u64, PagePos>>,
@@ -159,6 +159,7 @@ impl MadEngineHandle {
         })
         .await
         .unwrap();
+        todo!("check checksum!");
         Ok(())
     }
 
@@ -168,13 +169,14 @@ impl MadEngineHandle {
         if chunk_meta.is_none() {
             return Err(EngineError::MetaNotExist);
         }
-        let chunk_meta: ChunkMeta =
+        let mut chunk_meta: ChunkMeta =
             serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
                 .unwrap();
         let size = chunk_meta.get_size();
         let start_page = offset / PAGE_SIZE;
         let cover_end_page = size.min(offset + len - 1) / PAGE_SIZE;
-        let end_page = size.max(offset + len - 1) / PAGE_SIZE;
+        let end_page = (offset + len - 1) / PAGE_SIZE;
+        let last_page = size / PAGE_SIZE;
         let total_page_num = end_page - start_page + 1;
         let poses = (start_page..=cover_end_page)
             .map(|p| {
@@ -188,6 +190,7 @@ impl MadEngineHandle {
             })
             .collect::<Vec<_>>();
         // get all the new positions to write new data
+        let poses_copy = poses.clone();
         let new_poses = self
             .pool
             .complete(async move {
@@ -215,6 +218,28 @@ impl MadEngineHandle {
                             }
                         }
                     }
+                    // recycle old pages
+                    let mut new_blobs = vec![];
+                    for pos in poses_copy {
+                        let mut flag = false;
+                        let tblobs = br.tblobs.clone();
+                        for bid in tblobs.iter() {
+                            if *bid == pos.bid {
+                                let bm = br.tfree_list.get_mut(&bid);
+                                bm.unwrap().clear(pos.offset);
+                                flag = true;
+                                break;
+                            }
+                        }
+                        if flag == false {
+                            new_blobs.push(pos.bid);
+                            let bm = BitMap::new_set_ones(BLOB_SIZE * CLUSTER_SIZE);
+                            br.tfree_list.insert(pos.bid, bm);
+                        }
+                    }
+                    for new_blob in new_blobs {
+                        br.tblobs.push(new_blob);
+                    }
                 });
                 ret
             })
@@ -231,7 +256,7 @@ impl MadEngineHandle {
                         .read(pos.offset, pos.bid, buf.as_mut())
                         .await
                         .unwrap();
-                    let mut buffer = buf.as_mut();
+                    let buffer = buf.as_mut();
                     buffer[(offset - start_page * PAGE_SIZE) as usize..].copy_from_slice(
                         &data
                             [data_anchor..(PAGE_SIZE - (offset - start_page * PAGE_SIZE)) as usize],
@@ -248,15 +273,140 @@ impl MadEngineHandle {
                     idx_anchor += 1;
                     data_anchor += (PAGE_SIZE - (offset - start_page * PAGE_SIZE)) as usize;
                 } else if i == poses.len() - 1 {
-                    // last page
-                    unimplemented!("handle last page")
+                    // all overwrite
+                    if end_page == last_page {
+                        if size <= offset + len {
+                            let buffer = buf.as_mut();
+                            buffer.fill(0);
+                            buffer[0..(data.len() - data_anchor)]
+                                .copy_from_slice(&data[data_anchor..]);
+                            self.device_engine
+                                .clone()
+                                .write(
+                                    new_poses[idx_anchor].offset,
+                                    new_poses[idx_anchor].bid,
+                                    buffer,
+                                )
+                                .await
+                                .unwrap();
+                            idx_anchor += 1;
+                            data_anchor = data.len();
+                        } else {
+                            self.device_engine
+                                .clone()
+                                .read(pos.offset, pos.bid, buf.as_mut())
+                                .await
+                                .unwrap();
+                            let buffer = buf.as_mut();
+                            buffer[0..(offset + len - end_page * PAGE_SIZE) as usize]
+                                .copy_from_slice(&data[data_anchor..]);
+                            self.device_engine
+                                .clone()
+                                .write(
+                                    new_poses[idx_anchor].offset,
+                                    new_poses[idx_anchor].bid,
+                                    buffer,
+                                )
+                                .await
+                                .unwrap();
+                            idx_anchor += 1;
+                            data_anchor = data.len();
+                        }
+                    } else if end_page < last_page {
+                        self.device_engine
+                            .clone()
+                            .read(pos.offset, pos.bid, buf.as_mut())
+                            .await
+                            .unwrap();
+                        let buffer = buf.as_mut();
+                        buffer[0..(offset + len - end_page * PAGE_SIZE) as usize]
+                            .copy_from_slice(&data[data_anchor..]);
+                        self.device_engine
+                            .clone()
+                            .write(
+                                new_poses[idx_anchor].offset,
+                                new_poses[idx_anchor].bid,
+                                buffer,
+                            )
+                            .await
+                            .unwrap();
+                        idx_anchor += 1;
+                        data_anchor = data.len();
+                    } else {
+                        self.device_engine
+                            .clone()
+                            .write(
+                                new_poses[idx_anchor].offset,
+                                new_poses[idx_anchor].bid,
+                                &data[data_anchor..(data_anchor + PAGE_SIZE as usize)],
+                            )
+                            .await
+                            .unwrap();
+                        idx_anchor += 1;
+                        data_anchor += PAGE_SIZE as usize;
+                    }
                 } else {
-                    unimplemented!("handle internal pages")
+                    self.device_engine
+                        .clone()
+                        .write(
+                            new_poses[idx_anchor].offset,
+                            new_poses[idx_anchor].bid,
+                            &data[data_anchor..(data_anchor + PAGE_SIZE as usize)],
+                        )
+                        .await
+                        .unwrap();
+                    idx_anchor += 1;
+                    data_anchor += PAGE_SIZE as usize;
+                }
+            }
+            if end_page > last_page {
+                for page in last_page + 1..=end_page {
+                    let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
+                    buf.as_mut().fill(0);
+                    if page == end_page {
+                        let buffer = buf.as_mut();
+                        buffer[0..(data.len() - data_anchor)].copy_from_slice(&data[data_anchor..]);
+                        self.device_engine
+                            .clone()
+                            .write(
+                                new_poses[idx_anchor].offset,
+                                new_poses[idx_anchor].bid,
+                                buffer,
+                            )
+                            .await
+                            .unwrap();
+                        idx_anchor += 1;
+                        data_anchor = data.len();
+                    } else {
+                        self.device_engine
+                            .clone()
+                            .write(
+                                new_poses[idx_anchor].offset,
+                                new_poses[idx_anchor].bid,
+                                &data[data_anchor..(data_anchor + PAGE_SIZE as usize)],
+                            )
+                            .await
+                            .unwrap();
+                        idx_anchor += 1;
+                        data_anchor += PAGE_SIZE as usize;
+                    }
                 }
             }
         })
         .await;
-        unimplemented!("change metadata and TLS, do GC as well");
+        chunk_meta.size = size.max(offset + data.len() as u64);
+        let mut locations = chunk_meta.location.unwrap().clone();
+        let mut idx = 0;
+        for page in start_page..=end_page {
+            let pos = PagePos {
+                bid: new_poses[idx].bid,
+                offset: new_poses[idx].offset,
+            };
+            locations.insert(page, pos);
+            idx += 1;
+        }
+        chunk_meta.location = Some(locations);
+        todo!("calculate checksum");
         Ok(())
     }
 

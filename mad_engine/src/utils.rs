@@ -41,6 +41,12 @@ impl BitMap {
         Self { count, words }
     }
 
+    pub fn new_set_ones(count: u64) -> Self {
+        let word_count = (count + WORD_SIZE - 1) / WORD_SIZE;
+        let words = vec![u64::MAX; word_count as usize];
+        Self { count, words }
+    }
+
     pub fn get_size(&self) -> u64 {
         self.count
     }
