@@ -1,22 +1,18 @@
-use crate::utils::*;
+use crate::error::{EngineError, Result};
+use crate::{utils::*, DeviceEngine};
 use async_spdk::blob::{self, BlobId as SBlobId, Blobstore, IoChannel};
 use async_spdk::env::DmaBuf;
 use async_spdk::{blob_bdev, event};
-use rayon::vec;
-// use rayon::{ThreadPool, ThreadPoolBuilder};
 use rocksdb::DB;
+use rusty_pool::ThreadPool;
 use serde::{Deserialize, Serialize};
-use std::io::Result;
-use std::sync::Barrier;
+use std::time::Duration;
 use std::{
     cell::RefCell,
     collections::HashMap,
     path::Path,
     sync::{Arc, Mutex},
-    thread::ThreadId,
 };
-use thread_local::ThreadLocal;
-use threadpool::ThreadPool;
 
 const PAGE_SIZE: u64 = 0x1000;
 
@@ -55,6 +51,12 @@ impl Default for ChunkMeta {
     }
 }
 
+impl ChunkMeta {
+    pub fn get_size(&self) -> u64 {
+        self.size
+    }
+}
+
 impl Chunk {
     pub fn new(name: String, size: u64) -> Self {
         Self {
@@ -64,98 +66,198 @@ impl Chunk {
     }
 }
 
-#[derive(Debug)]
 pub struct MadEngineHandle {
     db: Arc<DB>,
-    engine: Arc<Mutex<MadEngine>>,
+    device_engine: Arc<DeviceEngine>,
+    mad_engine: Arc<Mutex<MadEngine>>,
     pool: ThreadPool,
-    bs: Arc<Blobstore>,
 }
 
 impl MadEngineHandle {
     /// new basic MadEngineHandler
-    pub async fn new(path: impl AsRef<Path>, device_name: &'_ str) -> Self {
+    pub async fn new(path: impl AsRef<Path>, device_name: &str) -> Result<Self> {
+        let handle = Arc::new(DeviceEngine::new(device_name).await.unwrap());
         let db = Arc::new(DB::open_default(path).unwrap());
-        let mut bs_dev = blob_bdev::BlobStoreBDev::create(device_name).unwrap();
-        let bs = Arc::new(blob::Blobstore::init(&mut bs_dev).await.unwrap());
-        let pool = ThreadPool::new(NUM_THREAD);
+        let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
         let num_init = NUM_THREAD;
-        let barrier = Arc::new(Barrier::new(num_init + 1));
         for _ in 0..num_init {
-            let barrier = barrier.clone();
-            let io_channel = bs.alloc_io_channel().unwrap();
-            let bs = bs.clone();
-            let blob_id = bs.create_blob().await.unwrap();
-            let blob = bs.open_blob(blob_id).await.unwrap();
-            blob.resize(BLOB_SIZE).await.unwrap();
-            blob.sync_metadata().await.unwrap();
+            let handle = handle.clone();
+            let blob_id = handle.create_blob(64).await.unwrap();
             let db = db.clone();
             // do the initialization work for each thread
-            // use barrier to sync all of them
-            pool.execute(move || {
+            pool.spawn(async move {
                 TLS.with(move |f| {
                     let mut br = f.borrow_mut();
-                    br.channel = Some(io_channel);
-                    br.tblobs = vec![blob_id];
+                    br.tblobs = vec![blob_id.get_id().unwrap()];
                     br.tfree_list = HashMap::new();
                     let bitmap = BitMap::new(BLOB_SIZE * CLUSTER_SIZE);
-                    br.tfree_list.insert(blob_id, bitmap);
+                    br.tfree_list.insert(blob_id.get_id().unwrap(), bitmap);
                     br.db = Some(db);
-                    br.bs = Some(bs);
                 });
-                barrier.wait();
             });
         }
-        barrier.wait();
-        let total_cluster = bs.total_data_cluster_count();
-        Self {
+        pool.join();
+        let total_cluster = handle.total_data_cluster_count().unwrap();
+        Ok(Self {
             db: db.clone(),
-            engine: Arc::new(Mutex::new(MadEngine::new(total_cluster))),
+            device_engine: handle,
+            mad_engine: Arc::new(Mutex::new(MadEngine::new(total_cluster))),
             pool,
-            bs,
-        }
+        })
     }
 
     /// read a chunk, this should return the read length
-    pub async fn read(&self, name: String, offset: u64, data: &mut [u8]) {
+    ///
+    /// TODO: check read range, return read length
+    pub async fn read(&self, name: String, offset: u64, data: &mut [u8]) -> Result<()> {
         let len = data.len() as u64;
         let start_page = offset / PAGE_SIZE;
         let end_page = (offset + len - 1) / PAGE_SIZE;
-        self.pool.execute(move || {
-            TLS.with(|tls| {
-                let br = tls.borrow();
-                let chunk_meta = br.db.clone().unwrap().get(name).unwrap();
-                if chunk_meta.is_none() {
-                    unimplemented!("handle non-exist error");
+        event::spawn(async {
+            let chunk_meta = self.db.clone().get(name).unwrap();
+            if chunk_meta.is_none() {
+                return Err(EngineError::MetaNotExist);
+            }
+            let chunk_meta: ChunkMeta =
+                serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
+                    .unwrap();
+            let poses = (start_page..=end_page)
+                .map(|p| {
+                    chunk_meta
+                        .location
+                        .clone()
+                        .unwrap()
+                        .get(&p)
+                        .unwrap()
+                        .clone()
+                })
+                .collect::<Vec<_>>();
+            // there should be a merger to merge succesive pages
+            let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
+            let mut anchor = 0;
+            for (i, pos) in poses.iter().enumerate() {
+                self.device_engine
+                    .clone()
+                    .read(pos.offset, pos.bid, buf.as_mut())
+                    .await
+                    .unwrap();
+                if i == 0 {
+                    let buffer = buf.as_ref();
+                    data[anchor..((start_page + 1) * PAGE_SIZE - offset) as usize]
+                        .copy_from_slice(&buffer[((offset - start_page * PAGE_SIZE) as usize)..]);
+                    anchor += ((start_page + 1) * PAGE_SIZE - offset) as usize;
+                } else if i == poses.len() - 1 {
+                    let end = offset + len - 1 - end_page * PAGE_SIZE + 1;
+                    let buffer = buf.as_ref();
+                    data[anchor..].copy_from_slice(&buffer[0..=end as usize]);
+                } else {
+                    data[anchor..(anchor + PAGE_SIZE as usize)].copy_from_slice(&buf.as_ref());
+                    anchor += PAGE_SIZE as usize;
                 }
-                let chunk_meta: ChunkMeta = serde_json::from_slice(
-                    &String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes(),
-                )
-                .unwrap();
-                let poses = (start_page..=end_page)
-                    .map(|p| {
-                        chunk_meta
-                            .location
-                            .clone()
-                            .unwrap()
-                            .get(&p)
-                            .unwrap()
-                            .clone()
-                    })
-                    .collect::<Vec<_>>();
-                // there should be a merger to merge succesive pages
-                let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
-                for pos in poses {
-                    let _ = event::spawn(async {
-                        let blob = br.bs.clone().unwrap().open_blob(pos.bid).await.unwrap();
-                    });
-                }
-            });
-        });
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+        Ok(())
     }
 
-    pub async fn write(&self, name: String, offset: u64, data: &[u8]) {
-        unimplemented!()
+    pub async fn write(&self, name: String, offset: u64, data: &[u8]) -> Result<()> {
+        let len = data.len() as u64;
+        let chunk_meta = self.db.clone().get(name).unwrap();
+        if chunk_meta.is_none() {
+            return Err(EngineError::MetaNotExist);
+        }
+        let chunk_meta: ChunkMeta =
+            serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
+                .unwrap();
+        let size = chunk_meta.get_size();
+        let start_page = offset / PAGE_SIZE;
+        let cover_end_page = size.min(offset + len - 1) / PAGE_SIZE;
+        let end_page = size.max(offset + len - 1) / PAGE_SIZE;
+        let total_page_num = end_page - start_page + 1;
+        let poses = (start_page..=cover_end_page)
+            .map(|p| {
+                chunk_meta
+                    .location
+                    .clone()
+                    .unwrap()
+                    .get(&p)
+                    .unwrap()
+                    .clone()
+            })
+            .collect::<Vec<_>>();
+        // get all the new positions to write new data
+        let new_poses = self
+            .pool
+            .complete(async move {
+                let mut ret = vec![];
+                TLS.with(|f| {
+                    let mut br = f.borrow_mut();
+                    let mut cnt = total_page_num;
+                    while cnt > 0 {
+                        let tblobs = br.tblobs.clone();
+                        for bid in tblobs.iter() {
+                            let bm = br.tfree_list.get_mut(&bid);
+                            if bm.is_none() {
+                                break;
+                            }
+                            let bm = bm.unwrap();
+                            let idx = bm.find().unwrap();
+                            ret.push(PagePos {
+                                bid: bid.clone(),
+                                offset: idx,
+                            });
+                            bm.set(idx);
+                            cnt -= 1;
+                            if cnt == 0 {
+                                break;
+                            }
+                        }
+                    }
+                });
+                ret
+            })
+            .await_complete();
+        event::spawn(async {
+            let mut idx_anchor = 0;
+            let mut data_anchor = 0;
+            for (i, pos) in poses.iter().enumerate() {
+                let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
+                // read first page
+                if i == 0 {
+                    self.device_engine
+                        .clone()
+                        .read(pos.offset, pos.bid, buf.as_mut())
+                        .await
+                        .unwrap();
+                    let mut buffer = buf.as_mut();
+                    buffer[(offset - start_page * PAGE_SIZE) as usize..].copy_from_slice(
+                        &data
+                            [data_anchor..(PAGE_SIZE - (offset - start_page * PAGE_SIZE)) as usize],
+                    );
+                    self.device_engine
+                        .clone()
+                        .write(
+                            new_poses[idx_anchor].offset,
+                            new_poses[idx_anchor].bid,
+                            buffer,
+                        )
+                        .await
+                        .unwrap();
+                    idx_anchor += 1;
+                    data_anchor += (PAGE_SIZE - (offset - start_page * PAGE_SIZE)) as usize;
+                } else if i == poses.len() - 1 {
+                    // last page
+                    unimplemented!("handle last page")
+                } else {
+                    unimplemented!("handle internal pages")
+                }
+            }
+        })
+        .await;
+        unimplemented!("change metadata and TLS, do GC as well");
+        Ok(())
     }
 
     /// create a new chunk with no space allocated
@@ -187,8 +289,6 @@ pub struct MadEngine {
     blobs: Vec<SBlobId>,
     // information about lower device
     device: DeviceInfo,
-    // each thread local variable allocation info
-    //alloc_list: HashMap<ThreadId, ThreadData>,
 }
 
 impl MadEngine {
@@ -233,9 +333,10 @@ pub struct ThreadData {
     tblobs: Vec<SBlobId>,
     // self owned free list, can 'steal' others' space
     tfree_list: HashMap<SBlobId, BitMap>,
-    channel: Option<IoChannel>,
+    // channel: Option<IoChannel>,
     db: Option<Arc<DB>>,
-    bs: Option<Arc<Blobstore>>,
+    // bs: Option<Arc<Blobstore>>,
+    handle: Option<Arc<DeviceEngine>>,
 }
 
 impl Default for ThreadData {
@@ -243,9 +344,10 @@ impl Default for ThreadData {
         Self {
             tblobs: Vec::new(),
             tfree_list: HashMap::new(),
-            channel: None,
+            // channel: None,
             db: None,
-            bs: None,
+            // bs: None,
+            handle: None,
         }
     }
 }
