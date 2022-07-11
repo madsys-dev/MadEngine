@@ -19,3 +19,7 @@ thiserror = "1.0"
 scoped-tls = "1.0.0"
 threadpool ="1.8"
 rusty_pool = "0.7.0"
+log = "0.4"
+
+[dev-dependencies]
+env_logger = "0.8"

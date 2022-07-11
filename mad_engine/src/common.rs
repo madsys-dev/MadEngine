@@ -132,6 +132,7 @@ impl MadEngineHandle {
                         .clone()
                 })
                 .collect::<Vec<_>>();
+            let checksum_vec = chunk_meta.csum_data.clone();
             // there should be a merger to merge succesive pages
             let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
             let mut anchor = 0;
@@ -141,6 +142,9 @@ impl MadEngineHandle {
                     .read(pos.offset, pos.bid, buf.as_mut())
                     .await
                     .unwrap();
+                if Hasher::new().checksum(buf.as_ref()) != checksum_vec[i + start_page as usize] {
+                    return Err(EngineError::CheckSumErr);
+                }
                 if i == 0 {
                     let buffer = buf.as_ref();
                     data[anchor..((start_page + 1) * PAGE_SIZE - offset) as usize]
@@ -159,7 +163,6 @@ impl MadEngineHandle {
         })
         .await
         .unwrap();
-        todo!("check checksum!");
         Ok(())
     }
 
@@ -173,6 +176,7 @@ impl MadEngineHandle {
             serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
                 .unwrap();
         let size = chunk_meta.get_size();
+        let mut checksum_vec = chunk_meta.csum_data.clone();
         let start_page = offset / PAGE_SIZE;
         let cover_end_page = size.min(offset + len - 1) / PAGE_SIZE;
         let end_page = (offset + len - 1) / PAGE_SIZE;
@@ -190,6 +194,7 @@ impl MadEngineHandle {
             })
             .collect::<Vec<_>>();
         // get all the new positions to write new data
+        // recycle old positions
         let poses_copy = poses.clone();
         let new_poses = self
             .pool
@@ -219,6 +224,7 @@ impl MadEngineHandle {
                         }
                     }
                     // recycle old pages
+                    // fix bug: do a merger
                     let mut new_blobs = vec![];
                     for pos in poses_copy {
                         let mut flag = false;
@@ -231,10 +237,23 @@ impl MadEngineHandle {
                                 break;
                             }
                         }
+                        // not in the old tblobs, but maybe in the newblobs
+                        if flag == false {
+                            for bid in new_blobs.iter() {
+                                if *bid == pos.bid {
+                                    flag = true;
+                                    break;
+                                }
+                            }
+                        }
                         if flag == false {
                             new_blobs.push(pos.bid);
-                            let bm = BitMap::new_set_ones(BLOB_SIZE * CLUSTER_SIZE);
+                            let mut bm = BitMap::new_set_ones(BLOB_SIZE * CLUSTER_SIZE);
+                            bm.clear(pos.offset);
                             br.tfree_list.insert(pos.bid, bm);
+                        } else {
+                            let bm = br.tfree_list.get_mut(&pos.bid).unwrap();
+                            bm.clear(pos.offset);
                         }
                     }
                     for new_blob in new_blobs {
@@ -261,6 +280,7 @@ impl MadEngineHandle {
                         &data
                             [data_anchor..(PAGE_SIZE - (offset - start_page * PAGE_SIZE)) as usize],
                     );
+                    checksum_vec[i + start_page as usize] = Hasher::new().checksum(buffer.as_ref());
                     self.device_engine
                         .clone()
                         .write(
@@ -280,6 +300,8 @@ impl MadEngineHandle {
                             buffer.fill(0);
                             buffer[0..(data.len() - data_anchor)]
                                 .copy_from_slice(&data[data_anchor..]);
+                            checksum_vec[i + start_page as usize] =
+                                Hasher::new().checksum(buffer.as_ref());
                             self.device_engine
                                 .clone()
                                 .write(
@@ -300,6 +322,8 @@ impl MadEngineHandle {
                             let buffer = buf.as_mut();
                             buffer[0..(offset + len - end_page * PAGE_SIZE) as usize]
                                 .copy_from_slice(&data[data_anchor..]);
+                            checksum_vec[i + start_page as usize] =
+                                Hasher::new().checksum(buffer.as_ref());
                             self.device_engine
                                 .clone()
                                 .write(
@@ -321,6 +345,8 @@ impl MadEngineHandle {
                         let buffer = buf.as_mut();
                         buffer[0..(offset + len - end_page * PAGE_SIZE) as usize]
                             .copy_from_slice(&data[data_anchor..]);
+                        checksum_vec[i + start_page as usize] =
+                            Hasher::new().checksum(buffer.as_ref());
                         self.device_engine
                             .clone()
                             .write(
@@ -342,6 +368,8 @@ impl MadEngineHandle {
                             )
                             .await
                             .unwrap();
+                        checksum_vec[i + start_page as usize] = Hasher::new()
+                            .checksum(&data[data_anchor..(data_anchor + PAGE_SIZE as usize)]);
                         idx_anchor += 1;
                         data_anchor += PAGE_SIZE as usize;
                     }
@@ -355,6 +383,8 @@ impl MadEngineHandle {
                         )
                         .await
                         .unwrap();
+                    checksum_vec[i + start_page as usize] = Hasher::new()
+                        .checksum(&data[data_anchor..(data_anchor + PAGE_SIZE as usize)]);
                     idx_anchor += 1;
                     data_anchor += PAGE_SIZE as usize;
                 }
@@ -366,6 +396,7 @@ impl MadEngineHandle {
                     if page == end_page {
                         let buffer = buf.as_mut();
                         buffer[0..(data.len() - data_anchor)].copy_from_slice(&data[data_anchor..]);
+                        checksum_vec.push(Hasher::new().checksum(buffer.as_ref()));
                         self.device_engine
                             .clone()
                             .write(
@@ -387,6 +418,10 @@ impl MadEngineHandle {
                             )
                             .await
                             .unwrap();
+                        checksum_vec.push(
+                            Hasher::new()
+                                .checksum(&data[data_anchor..(data_anchor + PAGE_SIZE as usize)]),
+                        );
                         idx_anchor += 1;
                         data_anchor += PAGE_SIZE as usize;
                     }
@@ -406,7 +441,8 @@ impl MadEngineHandle {
             idx += 1;
         }
         chunk_meta.location = Some(locations);
-        todo!("calculate checksum");
+        chunk_meta.csum_data = checksum_vec;
+        chunk_meta.csum_type = "CRC32".into();
         Ok(())
     }
 
@@ -428,6 +464,10 @@ impl MadEngineHandle {
         let db = self.db.clone();
         db.delete(name).unwrap();
         Ok(())
+    }
+
+    pub async fn unload(&self) -> Result<()> {
+        self.device_engine.close_bs().await
     }
 }
 

@@ -1,0 +1,17 @@
+{
+    "subsystems": [
+      {
+        "subsystem": "bdev",
+        "config": [
+          {
+            "method": "bdev_malloc_create",
+            "params": {
+              "name": "mad_engine",
+              "num_blocks": 32768,
+              "block_size": 512
+            }
+          }
+        ]
+      }
+    ]
+}

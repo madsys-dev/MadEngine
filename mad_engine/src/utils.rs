@@ -35,12 +35,16 @@ pub struct BitMap {
 }
 
 impl BitMap {
+    /// create a bitmap with capacity, set all bits to zero
     pub fn new(count: u64) -> Self {
         let word_count = (count + WORD_SIZE - 1) / WORD_SIZE;
         let words = vec![0; word_count as usize];
         Self { count, words }
     }
 
+    /// create a bitmap with capacity, set all bits to one
+    ///
+    /// basically for recycling
     pub fn new_set_ones(count: u64) -> Self {
         let word_count = (count + WORD_SIZE - 1) / WORD_SIZE;
         let words = vec![u64::MAX; word_count as usize];
