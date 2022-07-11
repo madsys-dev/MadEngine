@@ -1,0 +1,16 @@
+- use memory as storage device to finish following tests
+- mkfs on device called `Malloc0`
+    - `./test/blobfs/mkfs/mkfs /usr/local/etc/spdk/rocksdb.json Malloc0` This is SPDK test for mkfs, second variable is the specification json file of the device, last variable is the device name, configured in the json file
+    - if succeed, you'll see: `Initializing filesystem on bdev Malloc0...done.`
+    - on real NVMe SSD, you shall use SPDK scripts to do the configuration as follows
+    - `scripts/gen_nvme.sh --json-with-subsystems > /usr/local/etc/spdk/rocksdb.json` This will detect the correct NVMe SSD and generate configuration file automatically.
+    - `HUGEMEM=5120 scripts/setup.sh` This will reserve 5GB hugepage for DPDK, and unbind device from OS
+    - `./test/blobfs/mkfs/mkfs /usr/local/etc/spdk/rocksdb.json Malloc0` do the same job
+    - `test/blobfs/fuse/fuse /usr/local/etc/spdk/rocksdb.json Nvme0n1 /mnt/fuse` This will use fuse to mount BlobFS. You will see "Mounting filesystem on bdev Nvme0n1 to path /mnt/fuse... done" if succeed
+
+- use SPDK rpc and fuse to mount blobfs to test the correctness of blobfs
+    - on one terminal: `./build/bin/spdk_tgt`, this will call the spdk rpc framework to reveive rpc request
+    - on another terminal: `./scripts/rpc.py bdev_malloc_create 512 4096`, this command create a bdev device based on memory("malloc" indicates that), with size 4096MiB (I guess), this means more than 4096 hugemem should be reseverd. This will echo the name of the created bdev, generally "Malloc0", if succeed
+    - `./scripts/rpc.py blobfs_create Malloc0`, create a BlobFS on bdev call "Malloc0" (mentioned above). This will echo "True" if succeed. 
+    - `./scripts/rpc.py blobfs_mount Malloc0 /mnt/fuse`, use fuse to mount this FS. This will echo "True" if succeed.
+    - `$ROCKSDB_DIR/db_bench --benchmarks="readrandomwriterandom,stats" --num=10000000 --db=/mnt/fuse --wal_dir=/mnt/fuse`, this is self-designed RocksDB db_bench test. This will print the performance result if succeed.
