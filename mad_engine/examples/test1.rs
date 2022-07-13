@@ -15,5 +15,12 @@ fn main() {
 }
 
 async fn test1_helper(name: &str) -> std::result::Result<(), EngineError> {
+    let handle = MadEngineHandle::new("data", name).await.unwrap();
+    handle.create("file1".to_string()).unwrap();
+    info!("create pass...");
+    handle.remove("file1".to_string()).unwrap();
+    info!("remove pass...");
+    handle.unload().await.unwrap();
+    info!("unload succeed...");
     Ok(())
 }
