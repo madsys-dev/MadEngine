@@ -11,13 +11,13 @@ const DATA_LEN: usize = 512;
 fn main() {
     env_logger::init();
     event::AppOpts::new()
-        .name("test1")
+        .name("test2")
         .config_file(&std::env::args().nth(1).expect("expect config file"))
-        .block_on(test1_helper("mad_engine"))
+        .block_on(test2_helper("mad_engine"))
         .unwrap();
 }
 
-async fn test1_helper(name: &str) -> std::result::Result<(), EngineError> {
+async fn test2_helper(name: &str) -> std::result::Result<(), EngineError> {
     let handle = MadEngineHandle::new("data", name).await.unwrap();
     handle.create("file2".to_string()).unwrap();
     info!("create file2 succeed...");
