@@ -37,8 +37,8 @@ async fn test2_helper(name: &str) -> std::result::Result<(), EngineError> {
         .await
         .unwrap();
     info!("read file2 succeed...");
-    for i in 0..DATA_LEN{
-        if buf[i] != buf2[i]{
+    for i in 0..DATA_LEN {
+        if buf[i] != buf2[i] {
             error!("data mismatch on {}!", i);
         }
     }

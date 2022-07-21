@@ -8,6 +8,10 @@ pub enum EngineError {
     MetaNotExist,
     #[error("chunksum mismatch")]
     CheckSumErr,
+    #[error("read out of range")]
+    ReadOutRange,
+    #[error("hole is not allowed")]
+    HoleNotAllowed,
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;

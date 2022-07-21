@@ -16,7 +16,7 @@ fn main() {
         .unwrap();
 }
 
-async fn test3_helper(name: &str)->std::result::Result<(), EngineError>{
+async fn test3_helper(name: &str) -> std::result::Result<(), EngineError> {
     let handle = MadEngineHandle::new("data", name).await.unwrap();
     handle.create("file3".to_string()).unwrap();
     info!("create file3 succeed...");
@@ -37,8 +37,8 @@ async fn test3_helper(name: &str)->std::result::Result<(), EngineError>{
         .await
         .unwrap();
     info!("read file3 succeed...");
-    for i in offset..offset+200{
-        if buf[i as usize] != buf2[i as usize - offset as usize]{
+    for i in offset..offset + 200 {
+        if buf[i as usize] != buf2[i as usize - offset as usize] {
             error!("data mismatch on {}!", i);
         }
     }

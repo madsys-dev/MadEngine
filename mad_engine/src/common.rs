@@ -1,8 +1,8 @@
 use crate::error::{EngineError, Result};
 use crate::{utils::*, DeviceEngine};
-use async_spdk::blob::{self, BlobId as SBlobId, Blobstore, IoChannel};
+use async_spdk::blob::BlobId as SBlobId;
 use async_spdk::env::DmaBuf;
-use async_spdk::{blob_bdev, event};
+use async_spdk::event;
 use rocksdb::DB;
 use rusty_pool::ThreadPool;
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,12 @@ pub struct ChunkMeta {
     // checksum algorithm type
     csum_type: String,
     csum_data: Vec<u32>,
+}
+
+// structure used for stat
+pub struct StatMeta {
+    size: u64,
+    csum_type: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -121,6 +127,10 @@ impl MadEngineHandle {
             let chunk_meta: ChunkMeta =
                 serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
                     .unwrap();
+            let size = chunk_meta.size;
+            if offset >= size || offset + len > size {
+                return Err(EngineError::ReadOutRange);
+            }
             let poses = (start_page..=end_page)
                 .map(|p| {
                     chunk_meta
@@ -176,6 +186,9 @@ impl MadEngineHandle {
             serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
                 .unwrap();
         let size = chunk_meta.get_size();
+        if offset >= size {
+            return Err(EngineError::HoleNotAllowed);
+        }
         let mut checksum_vec = chunk_meta.csum_data.clone();
         let start_page = offset / PAGE_SIZE;
         let cover_end_page = size.min(offset + len - 1) / PAGE_SIZE;
@@ -489,6 +502,21 @@ impl MadEngineHandle {
         let db = self.db.clone();
         db.delete(name).unwrap();
         Ok(())
+    }
+
+    pub fn stat(&self, name: String) -> Result<StatMeta> {
+        let chunk_meta = self.db.clone().get(name).unwrap();
+        if chunk_meta.is_none() {
+            return Err(EngineError::MetaNotExist);
+        }
+        let chunk_meta: ChunkMeta =
+            serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
+                .unwrap();
+        let ret = StatMeta {
+            size: chunk_meta.size,
+            csum_type: chunk_meta.csum_type.clone(),
+        };
+        Ok(ret)
     }
 
     pub async fn unload(&self) -> Result<()> {
