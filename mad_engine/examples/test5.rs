@@ -1,4 +1,4 @@
-// this is an aggregated test for mad_engine
+// this is an integration test for mad_engine
 // basically an aggregation of test1-4
 
 use async_spdk::*;
