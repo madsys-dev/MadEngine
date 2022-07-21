@@ -12,6 +12,8 @@ pub enum EngineError {
     ReadOutRange,
     #[error("hole is not allowed")]
     HoleNotAllowed,
+    #[error("restore fail")]
+    RestoreFail,
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;

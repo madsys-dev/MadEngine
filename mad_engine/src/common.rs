@@ -1,9 +1,9 @@
 use crate::error::{EngineError, Result};
 use crate::{utils::*, DeviceEngine};
-use async_spdk::blob::BlobId as SBlobId;
+use async_spdk::blob::{self, BlobId as SBlobId};
 use async_spdk::env::DmaBuf;
 use async_spdk::event;
-use rocksdb::DB;
+use rocksdb::{DBWithThreadMode, SingleThreaded, DB};
 use rusty_pool::ThreadPool;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -80,16 +80,62 @@ pub struct MadEngineHandle {
 }
 
 impl MadEngineHandle {
-    /// new basic MadEngineHandler
+    /// create or restore a madengine handle
     pub async fn new(path: impl AsRef<Path>, device_name: &str) -> Result<Self> {
-        let handle = Arc::new(DeviceEngine::new(device_name).await.unwrap());
         let db = Arc::new(DB::open_default(path).unwrap());
+        if let Some(_) = db
+            .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            .unwrap()
+        {
+            return Self::restore(db, device_name).await;
+        } else {
+            return Self::create_me(db.clone(), device_name).await;
+        }
+    }
+
+    pub async fn restore(
+        db: Arc<DBWithThreadMode<SingleThreaded>>,
+        device_name: &str,
+    ) -> Result<Self> {
+        let handle = Arc::new(DeviceEngine::new(device_name).await.unwrap());
         let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
+        let global = db
+            .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            .unwrap();
+        if global.is_none() {
+            return Err(EngineError::RestoreFail);
+        }
+        let global_meta: MadEngine =
+            serde_json::from_slice(&String::from_utf8(global.unwrap()).unwrap().as_bytes())
+                .unwrap();
+        let mad_engine = Arc::new(Mutex::new(global_meta));
         let num_init = NUM_THREAD;
+        let num_blobs = {
+            let l = mad_engine.lock().unwrap();
+            l.blobs.len()
+        };
+        for _ in 0..num_init {
+            let handle = handle.clone();
+        }
+
+        unimplemented!()
+    }
+
+    /// create basic MadEngineHandle
+    pub async fn create_me(
+        db: Arc<DBWithThreadMode<SingleThreaded>>,
+        device_name: &str,
+    ) -> Result<Self> {
+        let handle = Arc::new(DeviceEngine::new(device_name).await.unwrap());
+        let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
+        let total_cluster = handle.total_data_cluster_count().unwrap();
+        let num_init = NUM_THREAD;
+        let mad_engine = Arc::new(Mutex::new(MadEngine::new(total_cluster)));
         for _ in 0..num_init {
             let handle = handle.clone();
             let blob_id = handle.create_blob(64).await.unwrap();
             let db = db.clone();
+            let me = mad_engine.clone();
             // do the initialization work for each thread
             pool.spawn(async move {
                 TLS.with(move |f| {
@@ -97,17 +143,30 @@ impl MadEngineHandle {
                     br.tblobs = vec![blob_id.get_id().unwrap()];
                     br.tfree_list = HashMap::new();
                     let bitmap = BitMap::new(BLOB_SIZE * CLUSTER_SIZE);
-                    br.tfree_list.insert(blob_id.get_id().unwrap(), bitmap);
+                    br.tfree_list
+                        .insert(blob_id.get_id().unwrap(), bitmap.clone());
+                    let mut l = me.lock().unwrap();
+                    l.blobs.push(blob_id.get_id().unwrap());
+                    l.free_list
+                        .insert(blob_id.get_id().unwrap(), bitmap.clone());
+                    drop(l);
                     br.db = Some(db);
                 });
             });
         }
         pool.join();
-        let total_cluster = handle.total_data_cluster_count().unwrap();
+        let magic = mad_engine.lock().unwrap();
+        let global = magic.clone();
+        drop(magic);
+        db.put(
+            Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
+            serde_json::to_string(&global).unwrap().as_bytes(),
+        )
+        .unwrap();
         Ok(Self {
             db: db.clone(),
             device_engine: handle,
-            mad_engine: Arc::new(Mutex::new(MadEngine::new(total_cluster))),
+            mad_engine,
             pool,
         })
     }
@@ -524,7 +583,7 @@ impl MadEngineHandle {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MadEngine {
     // global free list
     free_list: HashMap<SBlobId, BitMap>,
@@ -548,7 +607,7 @@ impl MadEngine {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DeviceInfo {
     // cluster size in MB
     cluster_size: u64,

@@ -12,6 +12,8 @@ pub const BLOB_SIZE: u64 = 64;
 /// cluster size in pages
 pub const CLUSTER_SIZE: u64 = 256;
 
+pub const MAGIC: &str = "MadEngine";
+
 pub struct Hasher {
     ck_sum: Crc<u32>,
 }
@@ -28,7 +30,7 @@ impl Hasher {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BitMap {
     count: u64,
     words: Vec<u64>,
