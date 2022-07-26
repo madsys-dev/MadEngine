@@ -19,7 +19,7 @@ const DATA_LEN3: usize = 5120;
 const DATA_LEN4: usize = 6144;
 
 async fn test5_helper(name: &str) -> std::result::Result<(), EngineError> {
-    let handle = MadEngineHandle::new("data", name).await.unwrap();
+    let mut handle = MadEngineHandle::new("data", name).await.unwrap();
 
     // test1: basic create and remove test
     handle.create("file1".to_string()).unwrap();

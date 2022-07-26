@@ -17,7 +17,7 @@ fn main() {
 }
 
 async fn test3_helper(name: &str) -> std::result::Result<(), EngineError> {
-    let handle = MadEngineHandle::new("data", name).await.unwrap();
+    let mut handle = MadEngineHandle::new("data", name).await.unwrap();
     handle.create("file3".to_string()).unwrap();
     info!("create file3 succeed...");
     let mut buf: Vec<u8> = vec![0u8; DATA_LEN];
