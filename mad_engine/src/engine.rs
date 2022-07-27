@@ -5,7 +5,7 @@ use crate::utils::*;
 use async_spdk::env::DmaBuf;
 use async_spdk::event;
 use log::*;
-use rocksdb::{DBWithThreadMode, SingleThreaded, DB, Options};
+use rocksdb::{DBWithThreadMode, Options, SingleThreaded, DB};
 use rusty_pool::ThreadPool;
 use std::time::Duration;
 use std::{
@@ -23,7 +23,7 @@ pub struct MadEngineHandle {
     pool: ThreadPool,
 }
 
-impl Drop for MadEngineHandle{
+impl Drop for MadEngineHandle {
     fn drop(&mut self) {
         self.db.flush().unwrap();
         let _ = DB::destroy(&Options::default(), "data");
@@ -35,8 +35,8 @@ impl MadEngineHandle {
     pub async fn new(path: impl AsRef<Path>, device_name: &str) -> Result<Self> {
         let db = Arc::new(DB::open_default(path).unwrap());
         if let Some(_) = db
-            // .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
-            .get(MAGIC.to_string())
+            .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            // .get(MAGIC.to_string())
             .unwrap()
         {
             info!("start to restore metadata");
@@ -54,8 +54,8 @@ impl MadEngineHandle {
         let handle = Arc::new(DeviceEngine::new(device_name).await.unwrap());
         let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
         let global = db
-            .get(MAGIC.to_string())
-            // .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            // .get(MAGIC.to_string())
+            .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
             .unwrap();
         if global.is_none() {
             return Err(EngineError::RestoreFail);
@@ -80,7 +80,10 @@ impl MadEngineHandle {
                 let mut id = i;
                 while id < num_blobs {
                     thread_blobids.push(l.blobs[id]);
-                    blob2map.insert(l.blobs[id], l.free_list.get(&l.blobs[id].to_string()).unwrap().clone());
+                    blob2map.insert(
+                        l.blobs[id],
+                        l.free_list.get(&l.blobs[id].to_string()).unwrap().clone(),
+                    );
                     id += num_init;
                 }
             }
@@ -140,8 +143,8 @@ impl MadEngineHandle {
         let global = magic.clone();
         drop(magic);
         db.put(
-            // Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
-            MAGIC.to_string(),
+            Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
+            // MAGIC.to_string(),
             serde_json::to_string(&global).unwrap().as_bytes(),
         )
         .unwrap();
@@ -220,6 +223,7 @@ impl MadEngineHandle {
 
     pub async fn write(&mut self, name: String, offset: u64, data: &[u8]) -> Result<()> {
         let len = data.len() as u64;
+        // get the chunk metadata
         let chunk_meta = self.db.get(&name).unwrap();
         if chunk_meta.is_none() {
             return Err(EngineError::MetaNotExist);
@@ -233,20 +237,23 @@ impl MadEngineHandle {
         }
         let mut checksum_vec = chunk_meta.csum_data.clone();
         let start_page = offset / PAGE_SIZE;
+        // how many pages are overwritten
         let cover_end_page = size.min(offset + len - 1) / PAGE_SIZE;
         let end_page = (offset + len - 1) / PAGE_SIZE;
+        // last page before this write, -1 if this is the first write
         let mut last_page = size as i64 / PAGE_SIZE as i64;
+        // first write
         if size == 0 {
             last_page = -1;
         }
         let total_page_num = end_page - start_page + 1;
         let global = self
             .db
-            // .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
-            .get(MAGIC.to_string())
-            .unwrap();
+            .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            // .get(MAGIC.to_string())
+            ?;
         if global.is_none() {
-            return Err(EngineError::RestoreFail);
+            return Err(EngineError::GlobalGetFail);
         }
         let mut global_meta: MadEngine =
             serde_json::from_slice(&String::from_utf8(global.unwrap()).unwrap().as_bytes())
@@ -295,7 +302,9 @@ impl MadEngineHandle {
                                 offset: idx,
                             });
                             bm.set(idx);
-                            global_meta.free_list.insert(bid.clone().to_string(), bm.clone());
+                            global_meta
+                                .free_list
+                                .insert(bid.clone().to_string(), bm.clone());
                             cnt -= 1;
                             if cnt == 0 {
                                 break;
@@ -344,8 +353,8 @@ impl MadEngineHandle {
                     global_meta.free_list = new_blob2map.clone();
                     db_copy
                         .put(
-                            // Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
-                            MAGIC.to_string(),
+                            Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
+                            // MAGIC.to_string(),
                             serde_json::to_string(&global_meta.clone())
                                 .unwrap()
                                 .as_bytes(),
@@ -357,6 +366,7 @@ impl MadEngineHandle {
             .await_complete();
         let mut l = self.mad_engine.lock().unwrap();
         l.free_list = new_blob2map;
+        drop(l);
         event::spawn(async {
             let mut idx_anchor = 0;
             let mut data_anchor = 0;
@@ -469,7 +479,6 @@ impl MadEngineHandle {
                     }
                 } else {
                     self.device_engine
-                        .clone()
                         .write(
                             new_poses[idx_anchor].offset,
                             new_poses[idx_anchor].bid,
@@ -492,7 +501,6 @@ impl MadEngineHandle {
                         buffer[0..(data.len() - data_anchor)].copy_from_slice(&data[data_anchor..]);
                         checksum_vec.push(Hasher::new().checksum(buffer.as_ref()));
                         self.device_engine
-                            .clone()
                             .write(
                                 new_poses[idx_anchor].offset,
                                 new_poses[idx_anchor].bid,
@@ -504,7 +512,6 @@ impl MadEngineHandle {
                         data_anchor = data.len();
                     } else {
                         self.device_engine
-                            .clone()
                             .write(
                                 new_poses[idx_anchor].offset,
                                 new_poses[idx_anchor].bid,
@@ -541,8 +548,7 @@ impl MadEngineHandle {
         chunk_meta.csum_data = checksum_vec;
         chunk_meta.csum_type = "CRC32".into();
         self.db
-            .put(name, serde_json::to_string(&chunk_meta).unwrap().as_bytes())
-            .unwrap();
+            .put(name, serde_json::to_string(&chunk_meta).unwrap().as_bytes())?;
         Ok(())
     }
 
@@ -552,8 +558,7 @@ impl MadEngineHandle {
     pub fn create(&self, name: String) -> Result<()> {
         let db = self.db.clone();
         let chunk_meta = ChunkMeta::default();
-        db.put(name, serde_json::to_string(&chunk_meta).unwrap().as_bytes())
-            .unwrap();
+        db.put(name, serde_json::to_string(&chunk_meta).unwrap().as_bytes())?;
         Ok(())
     }
 
@@ -562,7 +567,7 @@ impl MadEngineHandle {
     /// todo: clear global freelist
     pub fn remove(&self, name: String) -> Result<()> {
         let db = self.db.clone();
-        db.delete(name).unwrap();
+        db.delete(name)?;
         Ok(())
     }
 
@@ -572,8 +577,7 @@ impl MadEngineHandle {
             return Err(EngineError::MetaNotExist);
         }
         let chunk_meta: ChunkMeta =
-            serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
-                .unwrap();
+            serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())?;
         let ret = StatMeta {
             size: chunk_meta.size,
             csum_type: chunk_meta.csum_type.clone(),

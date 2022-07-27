@@ -1,6 +1,6 @@
+use async_spdk::SpdkError;
 use serde_json::Error;
 use thiserror::Error;
-use async_spdk::SpdkError;
 
 #[derive(Error, Debug)]
 pub enum EngineError {
@@ -16,6 +16,8 @@ pub enum EngineError {
     HoleNotAllowed,
     #[error("restore fail")]
     RestoreFail,
+    #[error("fail to get global metadata")]
+    GlobalGetFail,
     #[error("RocksDB Error: {0}")]
     RocksDBError(#[from] rocksdb::Error),
     #[error("serde_json Error: {0}")]
