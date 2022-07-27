@@ -1,11 +1,11 @@
+use crate::common::*;
+use crate::device_engine::*;
 use crate::error::{EngineError, Result};
 use crate::utils::*;
-use crate::device_engine::*;
-use crate::common::*;
 use async_spdk::env::DmaBuf;
 use async_spdk::event;
 use log::*;
-use rocksdb::{DBWithThreadMode, SingleThreaded, DB};
+use rocksdb::{DBWithThreadMode, SingleThreaded, DB, Options};
 use rusty_pool::ThreadPool;
 use std::time::Duration;
 use std::{
@@ -23,12 +23,20 @@ pub struct MadEngineHandle {
     pool: ThreadPool,
 }
 
+impl Drop for MadEngineHandle{
+    fn drop(&mut self) {
+        self.db.flush().unwrap();
+        let _ = DB::destroy(&Options::default(), "data");
+    }
+}
+
 impl MadEngineHandle {
     /// create or restore a madengine handle
     pub async fn new(path: impl AsRef<Path>, device_name: &str) -> Result<Self> {
         let db = Arc::new(DB::open_default(path).unwrap());
         if let Some(_) = db
-            .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            // .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            .get(MAGIC.to_string())
             .unwrap()
         {
             info!("start to restore metadata");
@@ -46,7 +54,8 @@ impl MadEngineHandle {
         let handle = Arc::new(DeviceEngine::new(device_name).await.unwrap());
         let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
         let global = db
-            .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            .get(MAGIC.to_string())
+            // .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
             .unwrap();
         if global.is_none() {
             return Err(EngineError::RestoreFail);
@@ -71,7 +80,7 @@ impl MadEngineHandle {
                 let mut id = i;
                 while id < num_blobs {
                     thread_blobids.push(l.blobs[id]);
-                    blob2map.insert(l.blobs[id], l.free_list.get(&l.blobs[id]).unwrap().clone());
+                    blob2map.insert(l.blobs[id], l.free_list.get(&l.blobs[id].to_string()).unwrap().clone());
                     id += num_init;
                 }
             }
@@ -120,7 +129,7 @@ impl MadEngineHandle {
                     let mut l = me.lock().unwrap();
                     l.blobs.push(blob_id.get_id().unwrap());
                     l.free_list
-                        .insert(blob_id.get_id().unwrap(), bitmap.clone());
+                        .insert(blob_id.get_id().unwrap().to_string(), bitmap.clone());
                     drop(l);
                     br.db = Some(db);
                 });
@@ -131,7 +140,8 @@ impl MadEngineHandle {
         let global = magic.clone();
         drop(magic);
         db.put(
-            Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
+            // Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
+            MAGIC.to_string(),
             serde_json::to_string(&global).unwrap().as_bytes(),
         )
         .unwrap();
@@ -151,13 +161,13 @@ impl MadEngineHandle {
         let start_page = offset / PAGE_SIZE;
         let end_page = (offset + len - 1) / PAGE_SIZE;
         event::spawn(async {
-            let chunk_meta = self.db.clone().get(name).unwrap();
+            let chunk_meta = self.db.get(name)?;
             if chunk_meta.is_none() {
                 return Err(EngineError::MetaNotExist);
             }
-            let chunk_meta: ChunkMeta =
-                serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
-                    .unwrap();
+            let chunk_meta: ChunkMeta = serde_json::from_slice(
+                &String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes(),
+            )?;
             let size = chunk_meta.size;
             if offset >= size || offset + len > size {
                 return Err(EngineError::ReadOutRange);
@@ -181,16 +191,18 @@ impl MadEngineHandle {
                 self.device_engine
                     .clone()
                     .read(pos.offset, pos.bid, buf.as_mut())
-                    .await
-                    .unwrap();
+                    .await?;
                 if Hasher::new().checksum(buf.as_ref()) != checksum_vec[i + start_page as usize] {
                     return Err(EngineError::CheckSumErr);
                 }
+                // last page
                 if i == poses.len() - 1 {
                     let end = offset + len - 1 - end_page * PAGE_SIZE;
                     let buffer = buf.as_ref();
                     data[anchor..].copy_from_slice(&buffer[0..=end as usize]);
-                } else if i == 0 {
+                }
+                // first page
+                else if i == 0 {
                     let buffer = buf.as_ref();
                     data[anchor..((start_page + 1) * PAGE_SIZE - offset) as usize]
                         .copy_from_slice(&buffer[((offset - start_page * PAGE_SIZE) as usize)..]);
@@ -202,14 +214,13 @@ impl MadEngineHandle {
             }
             Ok(())
         })
-        .await
-        .unwrap();
+        .await?;
         Ok(())
     }
 
     pub async fn write(&mut self, name: String, offset: u64, data: &[u8]) -> Result<()> {
         let len = data.len() as u64;
-        let chunk_meta = self.db.clone().get(name.clone()).unwrap();
+        let chunk_meta = self.db.get(&name).unwrap();
         if chunk_meta.is_none() {
             return Err(EngineError::MetaNotExist);
         }
@@ -217,7 +228,7 @@ impl MadEngineHandle {
             serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
                 .unwrap();
         let size = chunk_meta.get_size();
-        if offset >= size {
+        if offset > size {
             return Err(EngineError::HoleNotAllowed);
         }
         let mut checksum_vec = chunk_meta.csum_data.clone();
@@ -231,7 +242,8 @@ impl MadEngineHandle {
         let total_page_num = end_page - start_page + 1;
         let global = self
             .db
-            .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            // .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            .get(MAGIC.to_string())
             .unwrap();
         if global.is_none() {
             return Err(EngineError::RestoreFail);
@@ -283,7 +295,7 @@ impl MadEngineHandle {
                                 offset: idx,
                             });
                             bm.set(idx);
-                            global_meta.free_list.insert(bid.clone(), bm.clone());
+                            global_meta.free_list.insert(bid.clone().to_string(), bm.clone());
                             cnt -= 1;
                             if cnt == 0 {
                                 break;
@@ -294,7 +306,7 @@ impl MadEngineHandle {
                     // fix bug: do a merger
                     let mut new_blobs = vec![];
                     for pos in poses_copy {
-                        let e = new_blob2map.get_mut(&pos.bid).unwrap();
+                        let e = new_blob2map.get_mut(&pos.bid.to_string()).unwrap();
                         e.clear(pos.offset);
                         drop(e);
                         let mut flag = false;
@@ -330,11 +342,15 @@ impl MadEngineHandle {
                         br.tblobs.push(new_blob);
                     }
                     global_meta.free_list = new_blob2map.clone();
-                    db_copy.put(
-                        Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
-                        serde_json::to_string(&global_meta.clone()).unwrap().as_bytes(),
-                    )
-                    .unwrap();
+                    db_copy
+                        .put(
+                            // Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
+                            MAGIC.to_string(),
+                            serde_json::to_string(&global_meta.clone())
+                                .unwrap()
+                                .as_bytes(),
+                        )
+                        .unwrap();
                 });
                 (ret, new_blob2map)
             })

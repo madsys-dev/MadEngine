@@ -1,12 +1,8 @@
 use crate::utils::*;
-use async_spdk::blob::{BlobId as SBlobId};
+use async_spdk::blob::BlobId as SBlobId;
 use rocksdb::DB;
 use serde::{Deserialize, Serialize};
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 #[derive(Debug)]
 pub struct Chunk {
@@ -67,9 +63,10 @@ impl Chunk {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MadEngine {
     // global free list
-    pub free_list: HashMap<SBlobId, BitMap>,
+    // pub(crate) free_list: HashMap<SBlobId, BitMap>,
+    pub(crate) free_list: HashMap<String, BitMap>,
     // allocated blobs
-    pub blobs: Vec<SBlobId>,
+    pub(crate) blobs: Vec<SBlobId>,
     // information about lower device
     pub(crate) device: DeviceInfo,
 }
