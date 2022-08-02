@@ -51,7 +51,7 @@ impl MadEngineHandle {
         db: Arc<DBWithThreadMode<SingleThreaded>>,
         device_name: &str,
     ) -> Result<Self> {
-        let handle = Arc::new(DeviceEngine::new(device_name).await.unwrap());
+        let handle = Arc::new(DeviceEngine::new(device_name, true).await.unwrap());
         let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
         let global = db
             // .get(MAGIC.to_string())
@@ -110,7 +110,7 @@ impl MadEngineHandle {
         db: Arc<DBWithThreadMode<SingleThreaded>>,
         device_name: &str,
     ) -> Result<Self> {
-        let handle = Arc::new(DeviceEngine::new(device_name).await.unwrap());
+        let handle = Arc::new(DeviceEngine::new(device_name, false).await.unwrap());
         let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
         let total_cluster = handle.total_data_cluster_count().unwrap();
         let num_init = NUM_THREAD;

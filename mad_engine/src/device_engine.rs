@@ -20,8 +20,8 @@ impl DeviceEngine {
 }
 
 impl DeviceEngine {
-    pub async fn new(name: &str) -> Result<Self> {
-        let bs = DeviceEngine::open_bs(name).await?;
+    pub async fn new(name: &str, is_reload: bool) -> Result<Self> {
+        let bs = DeviceEngine::open_bs(name, is_reload).await?;
         let size = bs.io_unit_size();
         let ret = DeviceEngine {
             bs,
@@ -31,9 +31,13 @@ impl DeviceEngine {
         Ok(ret)
     }
 
-    async fn open_bs(name: &str) -> Result<Blobstore> {
+    async fn open_bs(name: &str, is_reload: bool) -> Result<Blobstore> {
         let mut bs_dev = blob_bdev::BlobStoreBDev::create(name)?;
-        let bs = blob::Blobstore::init(&mut bs_dev).await?;
+        let bs = if !is_reload{
+            blob::Blobstore::init(&mut bs_dev).await?
+        }else{
+            blob::Blobstore::load(&mut bs_dev).await?
+        };
         Ok(bs)
     }
 
