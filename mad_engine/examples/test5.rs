@@ -12,7 +12,7 @@ fn main() {
     event::AppOpts::new()
         .name("test5")
         .config_file(&std::env::args().nth(1).expect("no such config file"))
-        .block_on(test5_helper("mad_engine"))
+        .block_on(test5_helper("Nvme0n1"))
         .unwrap();
 }
 

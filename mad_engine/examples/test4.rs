@@ -11,7 +11,7 @@ fn main() {
     event::AppOpts::new()
         .name("test4")
         .config_file(&std::env::args().nth(1).expect("no such config file"))
-        .block_on(test4_helper("mad_engine"))
+        .block_on(test4_helper("Nvme0n1"))
         .unwrap();
 }
 

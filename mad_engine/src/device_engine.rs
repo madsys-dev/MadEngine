@@ -1,6 +1,7 @@
 use crate::error::Result;
 use async_spdk::blob::{self, BlobId, Blobstore};
 use async_spdk::blob_bdev::{self};
+use log::*;
 
 #[derive(Debug)]
 pub struct DeviceEngine {
@@ -23,6 +24,7 @@ impl DeviceEngine {
     pub async fn new(name: &str, is_reload: bool) -> Result<Self> {
         let bs = DeviceEngine::open_bs(name, is_reload).await?;
         let size = bs.io_unit_size();
+        info!("OPEN BS: \n\tio_unit_size: {}B\n\tname: {:?}", size, name.clone());
         let ret = DeviceEngine {
             bs,
             name: String::from(name),
@@ -34,14 +36,18 @@ impl DeviceEngine {
     async fn open_bs(name: &str, is_reload: bool) -> Result<Blobstore> {
         let mut bs_dev = blob_bdev::BlobStoreBDev::create(name)?;
         let bs = if !is_reload{
+            info!("INIT new BlobStore");
             blob::Blobstore::init(&mut bs_dev).await?
         }else{
+            info!("RELOAD BlobStore");
             blob::Blobstore::load(&mut bs_dev).await?
         };
         Ok(bs)
     }
 
+    /// write data to the given blob
     pub async fn write(&self, offset: u64, blob_id: BlobId, buf: &[u8]) -> Result<()> {
+        info!("<WRITE> BlobId: {}, offset: {}, size: {}B", blob_id, offset, buf.len());
         let blob = self.bs.open_blob(blob_id).await?;
         let channel = self.bs.alloc_io_channel()?;
         blob.write(&channel, offset, buf).await?;
@@ -50,12 +56,14 @@ impl DeviceEngine {
         Ok(())
     }
 
+    /// read data from the given blob
     pub async fn read(&self, offset: u64, blob_id: BlobId, buf: &mut [u8]) -> Result<()> {
+        info!("<READ> BlobId: {}, offset: {}, size: {}B", blob_id, offset, buf.len());
         let blob = self.bs.open_blob(blob_id).await?;
         let channel = self.bs.alloc_io_channel()?;
-        blob.read(channel, offset, buf).await?;
+        blob.read(&channel, offset, buf).await?;
         blob.close().await?;
-        // drop(channel);
+        drop(channel);
         Ok(())
     }
 
@@ -63,6 +71,7 @@ impl DeviceEngine {
     ///
     /// note: size is number of clusters, usually 1MB per cluster
     pub async fn create_blob(&self, size: u64) -> Result<EngineBlob> {
+        info!("<CREATE> BLOB: size: {}MB", size);
         let blob_id = self.bs.create_blob().await?;
         let blob = self.bs.open_blob(blob_id).await?;
         blob.resize(size).await?;

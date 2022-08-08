@@ -15,6 +15,7 @@ use std::{
 };
 
 const PAGE_SIZE: u64 = 0x1000;
+const IO_SIZE: u64 = 512;
 
 pub struct MadEngineHandle {
     db: Arc<DB>,
@@ -36,7 +37,6 @@ impl MadEngineHandle {
         let db = Arc::new(DB::open_default(path).unwrap());
         if let Some(_) = db
             .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
-            // .get(MAGIC.to_string())
             .unwrap()
         {
             info!("start to restore metadata");
@@ -54,7 +54,6 @@ impl MadEngineHandle {
         let handle = Arc::new(DeviceEngine::new(device_name, true).await.unwrap());
         let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
         let global = db
-            // .get(MAGIC.to_string())
             .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
             .unwrap();
         if global.is_none() {
@@ -161,8 +160,10 @@ impl MadEngineHandle {
     /// TODO: check read range, return read length
     pub async fn read(&self, name: String, offset: u64, data: &mut [u8]) -> Result<()> {
         let len = data.len() as u64;
-        let start_page = offset / PAGE_SIZE;
-        let end_page = (offset + len - 1) / PAGE_SIZE;
+        // let start_page = offset / PAGE_SIZE;
+        let start_page = offset/IO_SIZE;
+        // let end_page = (offset + len - 1) / PAGE_SIZE;
+        let end_page = (offset + len - 1) / IO_SIZE;
         event::spawn(async {
             let chunk_meta = self.db.get(name)?;
             if chunk_meta.is_none() {
@@ -188,7 +189,8 @@ impl MadEngineHandle {
                 .collect::<Vec<_>>();
             let checksum_vec = chunk_meta.csum_data.clone();
             // there should be a merger to merge succesive pages
-            let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
+            // let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
+            let mut buf = DmaBuf::alloc((IO_SIZE) as usize, 0x1000);
             let mut anchor = 0;
             for (i, pos) in poses.iter().enumerate() {
                 self.device_engine
@@ -200,19 +202,25 @@ impl MadEngineHandle {
                 }
                 // last page
                 if i == poses.len() - 1 {
-                    let end = offset + len - 1 - end_page * PAGE_SIZE;
+                    // let end = offset + len - 1 - end_page * PAGE_SIZE;
+                    let end = offset + len - 1 - end_page * IO_SIZE;
                     let buffer = buf.as_ref();
                     data[anchor..].copy_from_slice(&buffer[0..=end as usize]);
                 }
                 // first page
                 else if i == 0 {
                     let buffer = buf.as_ref();
-                    data[anchor..((start_page + 1) * PAGE_SIZE - offset) as usize]
-                        .copy_from_slice(&buffer[((offset - start_page * PAGE_SIZE) as usize)..]);
-                    anchor += ((start_page + 1) * PAGE_SIZE - offset) as usize;
+                    // data[anchor..((start_page + 1) * PAGE_SIZE - offset) as usize]
+                    //     .copy_from_slice(&buffer[((offset - start_page * PAGE_SIZE) as usize)..]);
+                    data[anchor..((start_page + 1) * IO_SIZE - offset) as usize]
+                    .copy_from_slice(&buffer[((offset - start_page * IO_SIZE) as usize)..]);
+                    // anchor += ((start_page + 1) * PAGE_SIZE - offset) as usize;
+                    anchor += ((start_page + 1) * IO_SIZE - offset) as usize;
                 } else {
-                    data[anchor..(anchor + PAGE_SIZE as usize)].copy_from_slice(&buf.as_ref());
-                    anchor += PAGE_SIZE as usize;
+                    // data[anchor..(anchor + PAGE_SIZE as usize)].copy_from_slice(&buf.as_ref());
+                    data[anchor..(anchor + IO_SIZE as usize)].copy_from_slice(&buf.as_ref());
+                    // anchor += PAGE_SIZE as usize;
+                    anchor += IO_SIZE as usize;
                 }
             }
             Ok(())
@@ -236,12 +244,17 @@ impl MadEngineHandle {
             return Err(EngineError::HoleNotAllowed);
         }
         let mut checksum_vec = chunk_meta.csum_data.clone();
-        let start_page = offset / PAGE_SIZE;
+        // let start_page = offset / PAGE_SIZE;
+        let start_page = offset / IO_SIZE;
         // how many pages are overwritten
-        let cover_end_page = size.min(offset + len - 1) / PAGE_SIZE;
-        let end_page = (offset + len - 1) / PAGE_SIZE;
+        // let cover_end_page = size.min(offset + len - 1) / PAGE_SIZE;
+        let cover_end_page = size.min(offset + len - 1) / IO_SIZE;
+        // let end_page = (offset + len - 1) / PAGE_SIZE;
+        let end_page = (offset + len - 1) / IO_SIZE;
         // last page before this write, -1 if this is the first write
-        let mut last_page = size as i64 / PAGE_SIZE as i64;
+        // let mut last_page = size as i64 / PAGE_SIZE as i64;
+        let mut last_page = size as i64 / IO_SIZE as i64;
+        info!("start page: {}\ncover_end_page: {}\nend_page: {}\nlast_page: {}", start_page, cover_end_page, end_page, last_page);
         // first write
         if size == 0 {
             last_page = -1;
@@ -371,7 +384,8 @@ impl MadEngineHandle {
             let mut idx_anchor = 0;
             let mut data_anchor = 0;
             for (i, pos) in poses.iter().enumerate() {
-                let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
+                // let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
+                let mut buf = DmaBuf::alloc((IO_SIZE) as usize, 0x1000);
                 // read first page
                 if i == 0 {
                     self.device_engine
@@ -380,9 +394,13 @@ impl MadEngineHandle {
                         .await
                         .unwrap();
                     let buffer = buf.as_mut();
-                    buffer[(offset - start_page * PAGE_SIZE) as usize..].copy_from_slice(
+                    // buffer[(offset - start_page * PAGE_SIZE) as usize..].copy_from_slice(
+                    //     &data
+                    //         [data_anchor..(PAGE_SIZE - (offset - start_page * PAGE_SIZE)) as usize],
+                    // );
+                    buffer[(offset - start_page * IO_SIZE) as usize..].copy_from_slice(
                         &data
-                            [data_anchor..(PAGE_SIZE - (offset - start_page * PAGE_SIZE)) as usize],
+                            [data_anchor..(IO_SIZE - (offset - start_page * IO_SIZE)) as usize],
                     );
                     checksum_vec[i + start_page as usize] = Hasher::new().checksum(buffer.as_ref());
                     self.device_engine
@@ -395,7 +413,8 @@ impl MadEngineHandle {
                         .await
                         .unwrap();
                     idx_anchor += 1;
-                    data_anchor += (PAGE_SIZE - (offset - start_page * PAGE_SIZE)) as usize;
+                    // data_anchor += (PAGE_SIZE - (offset - start_page * PAGE_SIZE)) as usize;
+                    data_anchor += (IO_SIZE - (offset - start_page * IO_SIZE)) as usize;
                 } else if i == poses.len() - 1 {
                     // all overwrite
                     if end_page as i64 == last_page {
@@ -424,8 +443,10 @@ impl MadEngineHandle {
                                 .await
                                 .unwrap();
                             let buffer = buf.as_mut();
-                            buffer[0..(offset + len - end_page * PAGE_SIZE) as usize]
-                                .copy_from_slice(&data[data_anchor..]);
+                            // buffer[0..(offset + len - end_page * PAGE_SIZE) as usize]
+                            //     .copy_from_slice(&data[data_anchor..]);
+                            buffer[0..(offset + len - end_page * IO_SIZE) as usize]
+                            .copy_from_slice(&data[data_anchor..]);
                             checksum_vec[i + start_page as usize] =
                                 Hasher::new().checksum(buffer.as_ref());
                             self.device_engine
@@ -447,7 +468,9 @@ impl MadEngineHandle {
                             .await
                             .unwrap();
                         let buffer = buf.as_mut();
-                        buffer[0..(offset + len - end_page * PAGE_SIZE) as usize]
+                        // buffer[0..(offset + len - end_page * PAGE_SIZE) as usize]
+                        //     .copy_from_slice(&data[data_anchor..]);
+                        buffer[0..(offset + len - end_page * IO_SIZE) as usize]
                             .copy_from_slice(&data[data_anchor..]);
                         checksum_vec[i + start_page as usize] =
                             Hasher::new().checksum(buffer.as_ref());
@@ -468,33 +491,42 @@ impl MadEngineHandle {
                             .write(
                                 new_poses[idx_anchor].offset,
                                 new_poses[idx_anchor].bid,
-                                &data[data_anchor..(data_anchor + PAGE_SIZE as usize)],
+                                // &data[data_anchor..(data_anchor + PAGE_SIZE as usize)],
+                                &data[data_anchor..(data_anchor + IO_SIZE as usize)],
                             )
                             .await
                             .unwrap();
+                        // checksum_vec[i + start_page as usize] = Hasher::new()
+                        //     .checksum(&data[data_anchor..(data_anchor + PAGE_SIZE as usize)]);
                         checksum_vec[i + start_page as usize] = Hasher::new()
-                            .checksum(&data[data_anchor..(data_anchor + PAGE_SIZE as usize)]);
+                            .checksum(&data[data_anchor..(data_anchor + IO_SIZE as usize)]);
                         idx_anchor += 1;
-                        data_anchor += PAGE_SIZE as usize;
+                        // data_anchor += PAGE_SIZE as usize;
+                        data_anchor += IO_SIZE as usize;
                     }
                 } else {
                     self.device_engine
                         .write(
                             new_poses[idx_anchor].offset,
                             new_poses[idx_anchor].bid,
-                            &data[data_anchor..(data_anchor + PAGE_SIZE as usize)],
+                            // &data[data_anchor..(data_anchor + PAGE_SIZE as usize)],
+                            &data[data_anchor..(data_anchor + IO_SIZE as usize)],
                         )
                         .await
                         .unwrap();
+                    // checksum_vec[i + start_page as usize] = Hasher::new()
+                    //     .checksum(&data[data_anchor..(data_anchor + PAGE_SIZE as usize)]);
                     checksum_vec[i + start_page as usize] = Hasher::new()
-                        .checksum(&data[data_anchor..(data_anchor + PAGE_SIZE as usize)]);
+                        .checksum(&data[data_anchor..(data_anchor + IO_SIZE as usize)]);
                     idx_anchor += 1;
-                    data_anchor += PAGE_SIZE as usize;
+                    // data_anchor += PAGE_SIZE as usize;
+                    data_anchor += IO_SIZE as usize;
                 }
             }
             if end_page as i64 > last_page {
                 for page in last_page + 1..=end_page as i64 {
-                    let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
+                    // let mut buf = DmaBuf::alloc((PAGE_SIZE) as usize, 0x1000);
+                    let mut buf = DmaBuf::alloc((IO_SIZE) as usize, 0x1000);
                     buf.as_mut().fill(0);
                     if page as u64 == end_page {
                         let buffer = buf.as_mut();
@@ -511,20 +543,26 @@ impl MadEngineHandle {
                         idx_anchor += 1;
                         data_anchor = data.len();
                     } else {
+                        buf.as_mut().copy_from_slice(&data[data_anchor..(data_anchor + IO_SIZE as usize)]);
                         self.device_engine
                             .write(
                                 new_poses[idx_anchor].offset,
                                 new_poses[idx_anchor].bid,
-                                &data[data_anchor..(data_anchor + PAGE_SIZE as usize)],
+                                // &data[data_anchor..(data_anchor + PAGE_SIZE as usize)],
+                                // &data[data_anchor..(data_anchor + IO_SIZE as usize)],
+                                buf.as_ref()
                             )
                             .await
                             .unwrap();
                         checksum_vec.push(
+                            // Hasher::new()
+                            //     .checksum(&data[data_anchor..(data_anchor + PAGE_SIZE as usize)]),
                             Hasher::new()
-                                .checksum(&data[data_anchor..(data_anchor + PAGE_SIZE as usize)]),
+                                .checksum(&data[data_anchor..(data_anchor + IO_SIZE as usize)]),
                         );
                         idx_anchor += 1;
-                        data_anchor += PAGE_SIZE as usize;
+                        // data_anchor += PAGE_SIZE as usize;
+                        data_anchor += IO_SIZE as usize;
                     }
                 }
             }
