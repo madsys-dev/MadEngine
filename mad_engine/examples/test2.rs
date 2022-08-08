@@ -13,12 +13,12 @@ fn main() {
     event::AppOpts::new()
         .name("test2")
         .config_file(&std::env::args().nth(1).expect("expect config file"))
-        .block_on(test2_helper("mad_engine"))
+        .block_on(test2_helper("Nvme0n1"))
         .unwrap();
 }
 
 async fn test2_helper(name: &str) -> std::result::Result<(), EngineError> {
-    let handle = MadEngineHandle::new("data", name).await.unwrap();
+    let mut handle = MadEngineHandle::new("data", name).await.unwrap();
     handle.create("file2".to_string()).unwrap();
     info!("create file2 succeed...");
     let mut buf: Vec<u8> = vec![0u8; DATA_LEN];

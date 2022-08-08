@@ -1,6 +1,8 @@
 // this is an integration test for mad_engine
 // basically an aggregation of test1-4
 
+use std::time::Duration;
+
 use async_spdk::*;
 use log::*;
 use mad_engine::*;
@@ -10,7 +12,7 @@ fn main() {
     event::AppOpts::new()
         .name("test5")
         .config_file(&std::env::args().nth(1).expect("no such config file"))
-        .block_on(test5_helper("mad_engine"))
+        .block_on(test5_helper("Nvme0n1"))
         .unwrap();
 }
 
@@ -19,14 +21,19 @@ const DATA_LEN3: usize = 5120;
 const DATA_LEN4: usize = 6144;
 
 async fn test5_helper(name: &str) -> std::result::Result<(), EngineError> {
-    let handle = MadEngineHandle::new("data", name).await.unwrap();
+    let mut handle = MadEngineHandle::new("data", name).await.unwrap();
 
     // test1: basic create and remove test
     handle.create("file1".to_string()).unwrap();
     handle.remove("file1".to_string()).unwrap();
+    // drop(handle);
     info!("test1 pass...");
+    std::thread::sleep(Duration::from_secs(1));
 
     // test2: basic read and write test
+    // let mut handle = MadEngineHandle::new("data", name)
+    //     .await
+    //     .unwrap();
     handle.create("file2".to_string()).unwrap();
     let mut buf: Vec<u8> = vec![0u8; DATA_LEN2];
     for i in 0..DATA_LEN2 {
@@ -47,9 +54,14 @@ async fn test5_helper(name: &str) -> std::result::Result<(), EngineError> {
         }
     }
     handle.remove("file2".to_string()).unwrap();
+    // drop(handle);
     info!("test2 pass...");
+    std::thread::sleep(Duration::from_secs(1));
 
     // test3: single read and write but cross bondary
+    // let mut handle = MadEngineHandle::new("data", name)
+    //     .await
+    //     .unwrap();
     let mut buf: Vec<u8> = vec![0u8; DATA_LEN3];
     for i in 0..DATA_LEN3 {
         buf[i] = i as u8;
@@ -71,9 +83,14 @@ async fn test5_helper(name: &str) -> std::result::Result<(), EngineError> {
         }
     }
     handle.remove("file3".to_string()).unwrap();
+    // drop(handle);
     info!("test3 pass...");
+    std::thread::sleep(Duration::from_secs(1));
 
     // test4: multiple read and write
+    // let mut handle = MadEngineHandle::new("data", name)
+    //     .await
+    //     .unwrap();
     handle.create("file4".to_string()).unwrap();
     let mut buf1 = vec![0u8; DATA_LEN4];
     for i in 0..DATA_LEN4 {
