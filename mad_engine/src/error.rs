@@ -1,5 +1,5 @@
 use async_spdk::SpdkError;
-use serde_json::Error;
+// use serde_json::Error;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
