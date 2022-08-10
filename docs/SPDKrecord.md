@@ -29,3 +29,6 @@ This is record file for RocksDB + SPDK integration.
 - Close `secure boot` in your machine. This might cause problem like `pcieXXXX`
 - Use DmaBuf(DPDK tool?). This might cause problems like `io error`
 - A detailed [introduction](https://its201.com/article/cyq6239075/106732499) to SPDK
+- Follow SPDK [documentation](https://spdk.io/doc/blobfs.html) to configure rocksDB, and following is an example command
+    - `sudo ./db_bench --benchmarks="readrandomwriterandom,stats" --num=10000000 --duration=20 --db=../test0810 --wal_dir=../test0810 --spdk=../rocksdb.json --spdk_bdev=Nvme0n1 --spdk_cache_size=4096`
+    - remember to set `USE_RTTI=1` when make rocksdb
