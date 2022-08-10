@@ -1,17 +1,17 @@
 {
-    "subsystems": [
-      {
-        "subsystem": "bdev",
-        "config": [
-          {
-            "method": "bdev_malloc_create",
-            "params": {
-              "name": "mad_engine",
-              "num_blocks": 131072,
-              "block_size": 4096
-            }
-          }
-        ]
-      }
-    ]
+"subsystems": [
+{
+"subsystem": "bdev",
+"config": [
+{
+"method": "bdev_nvme_attach_controller",
+"params": {
+"trtype": "PCIe",
+"name":"Nvme0",
+"traddr":"0000:02:00.0"
+}
+}
+]
+}
+]
 }
