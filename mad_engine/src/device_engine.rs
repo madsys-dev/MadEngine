@@ -24,7 +24,11 @@ impl DeviceEngine {
     pub async fn new(name: &str, is_reload: bool) -> Result<Self> {
         let bs = DeviceEngine::open_bs(name, is_reload).await?;
         let size = bs.io_unit_size();
-        info!("OPEN BS: \n\tio_unit_size: {}B\n\tname: {:?}", size, name.clone());
+        info!(
+            "OPEN BS: \n\tio_unit_size: {}B\n\tname: {:?}",
+            size,
+            name.clone()
+        );
         let ret = DeviceEngine {
             bs,
             name: String::from(name),
@@ -35,10 +39,10 @@ impl DeviceEngine {
 
     async fn open_bs(name: &str, is_reload: bool) -> Result<Blobstore> {
         let mut bs_dev = blob_bdev::BlobStoreBDev::create(name)?;
-        let bs = if !is_reload{
+        let bs = if !is_reload {
             info!("INIT new BlobStore");
             blob::Blobstore::init(&mut bs_dev).await?
-        }else{
+        } else {
             info!("RELOAD BlobStore");
             blob::Blobstore::load(&mut bs_dev).await?
         };
@@ -47,7 +51,12 @@ impl DeviceEngine {
 
     /// write data to the given blob
     pub async fn write(&self, offset: u64, blob_id: BlobId, buf: &[u8]) -> Result<()> {
-        info!("<WRITE> BlobId: {}, offset: {}, size: {}B", blob_id, offset, buf.len());
+        info!(
+            "<WRITE> BlobId: {}, offset: {}, size: {}B",
+            blob_id,
+            offset,
+            buf.len()
+        );
         let blob = self.bs.open_blob(blob_id).await?;
         let channel = self.bs.alloc_io_channel()?;
         blob.write(&channel, offset, buf).await?;
@@ -58,7 +67,12 @@ impl DeviceEngine {
 
     /// read data from the given blob
     pub async fn read(&self, offset: u64, blob_id: BlobId, buf: &mut [u8]) -> Result<()> {
-        info!("<READ> BlobId: {}, offset: {}, size: {}B", blob_id, offset, buf.len());
+        info!(
+            "<READ> BlobId: {}, offset: {}, size: {}B",
+            blob_id,
+            offset,
+            buf.len()
+        );
         let blob = self.bs.open_blob(blob_id).await?;
         let channel = self.bs.alloc_io_channel()?;
         blob.read(&channel, offset, buf).await?;

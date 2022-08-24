@@ -6,7 +6,7 @@ use async_spdk::*;
 use log::*;
 use mad_engine::*;
 
-const DATA_LEN:usize = 6144;
+const DATA_LEN: usize = 6144;
 
 fn main() {
     env_logger::init();
@@ -17,7 +17,7 @@ fn main() {
         .unwrap();
 }
 
-async fn test6_helper(name: &str) -> std::result::Result<(), EngineError>{
+async fn test6_helper(name: &str) -> std::result::Result<(), EngineError> {
     let mut handle = MadEngineHandle::new("data", name).await.unwrap();
     handle.create("file6".to_string()).unwrap();
     info!("create file6 pass...");
@@ -75,5 +75,3 @@ async fn test6_helper(name: &str) -> std::result::Result<(), EngineError>{
     info!("test6 pass...");
     Ok(())
 }
-
-

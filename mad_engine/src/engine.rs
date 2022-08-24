@@ -5,7 +5,7 @@ use crate::utils::*;
 use async_spdk::env::DmaBuf;
 use async_spdk::event;
 use log::*;
-use rocksdb::{DBWithThreadMode, Options, SingleThreaded, DB};
+use rocksdb::{DBWithThreadMode, Options, SingleThreaded, DB, Env};
 use rusty_pool::ThreadPool;
 use std::time::Duration;
 use std::{
@@ -40,18 +40,51 @@ impl MadEngineHandle {
             .unwrap()
         {
             info!("start to restore metadata");
-            return Self::restore(db, device_name).await;
+            return Self::restore(db, device_name, true).await;
         } else {
             info!("create new engine");
-            return Self::create_me(db.clone(), device_name).await;
+            return Self::create_me(db.clone(), device_name, false).await;
         }
+    }
+
+    /// create MadEngine with rocksdb based on SPDK
+    /// this implementation has bug --- need united SPDK environment
+    pub async fn new_spdk(
+        path: impl AsRef<Path>,
+        config_file: &str,
+        device_name: &str,
+    ) -> Result<Self> {
+        let cpath = path.as_ref().to_str().unwrap();
+        let env= Env::rocksdb_create_spdk_env(
+            cpath, config_file, device_name, 4096
+        ).expect("fail to initilize spdk environment");
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.set_env(&env);
+        let db = Arc::new(DB::open(&opts, path).expect("fail to open db"));
+        info!("open rocksdb on spdk");
+        if let Some(_) = db
+            .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+            .unwrap()
+        {
+            info!("start to restore metadata");
+            return Self::restore(db, device_name, true).await;
+        } else {
+            info!("create new engine");
+            return Self::create_me(db.clone(), device_name, true).await;
+        }
+    }
+
+    async fn get_device_engine_handle(device_name: &str, is_reload: bool) -> Arc<DeviceEngine>{
+        Arc::new(DeviceEngine::new(device_name, is_reload).await.unwrap())
     }
 
     pub async fn restore(
         db: Arc<DBWithThreadMode<SingleThreaded>>,
         device_name: &str,
+        is_reload: bool,
     ) -> Result<Self> {
-        let handle = Arc::new(DeviceEngine::new(device_name, true).await.unwrap());
+        let handle = Self::get_device_engine_handle(device_name, is_reload).await;
         let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
         let global = db
             .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
@@ -108,8 +141,9 @@ impl MadEngineHandle {
     pub async fn create_me(
         db: Arc<DBWithThreadMode<SingleThreaded>>,
         device_name: &str,
+        is_reload: bool,
     ) -> Result<Self> {
-        let handle = Arc::new(DeviceEngine::new(device_name, false).await.unwrap());
+        let handle = Self::get_device_engine_handle(device_name, is_reload).await;
         let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
         let total_cluster = handle.total_data_cluster_count().unwrap();
         let num_init = NUM_THREAD;
@@ -162,7 +196,7 @@ impl MadEngineHandle {
         let len = data.len() as u64;
         let io_size = self.device_engine.get_io_size().unwrap();
         // let start_page = offset / PAGE_SIZE;
-        let start_page = offset/io_size;
+        let start_page = offset / io_size;
         // let end_page = (offset + len - 1) / PAGE_SIZE;
         let end_page = (offset + len - 1) / io_size;
         event::spawn(async {
@@ -214,7 +248,7 @@ impl MadEngineHandle {
                     // data[anchor..((start_page + 1) * PAGE_SIZE - offset) as usize]
                     //     .copy_from_slice(&buffer[((offset - start_page * PAGE_SIZE) as usize)..]);
                     data[anchor..((start_page + 1) * io_size - offset) as usize]
-                    .copy_from_slice(&buffer[((offset - start_page * io_size) as usize)..]);
+                        .copy_from_slice(&buffer[((offset - start_page * io_size) as usize)..]);
                     // anchor += ((start_page + 1) * PAGE_SIZE - offset) as usize;
                     anchor += ((start_page + 1) * io_size - offset) as usize;
                 } else {
@@ -256,7 +290,10 @@ impl MadEngineHandle {
         // last page before this write, -1 if this is the first write
         // let mut last_page = size as i64 / PAGE_SIZE as i64;
         let mut last_page = size as i64 / io_size as i64;
-        info!("start page: {}\ncover_end_page: {}\nend_page: {}\nlast_page: {}", start_page, cover_end_page, end_page, last_page);
+        info!(
+            "start page: {}\ncover_end_page: {}\nend_page: {}\nlast_page: {}",
+            start_page, cover_end_page, end_page, last_page
+        );
         // first write
         if size == 0 {
             last_page = -1;
@@ -401,8 +438,7 @@ impl MadEngineHandle {
                     //         [data_anchor..(PAGE_SIZE - (offset - start_page * PAGE_SIZE)) as usize],
                     // );
                     buffer[(offset - start_page * io_size) as usize..].copy_from_slice(
-                        &data
-                            [data_anchor..(io_size - (offset - start_page * io_size)) as usize],
+                        &data[data_anchor..(io_size - (offset - start_page * io_size)) as usize],
                     );
                     checksum_vec[i + start_page as usize] = Hasher::new().checksum(buffer.as_ref());
                     self.device_engine
@@ -448,7 +484,7 @@ impl MadEngineHandle {
                             // buffer[0..(offset + len - end_page * PAGE_SIZE) as usize]
                             //     .copy_from_slice(&data[data_anchor..]);
                             buffer[0..(offset + len - end_page * io_size) as usize]
-                            .copy_from_slice(&data[data_anchor..]);
+                                .copy_from_slice(&data[data_anchor..]);
                             checksum_vec[i + start_page as usize] =
                                 Hasher::new().checksum(buffer.as_ref());
                             self.device_engine
@@ -545,14 +581,15 @@ impl MadEngineHandle {
                         idx_anchor += 1;
                         data_anchor = data.len();
                     } else {
-                        buf.as_mut().copy_from_slice(&data[data_anchor..(data_anchor + io_size as usize)]);
+                        buf.as_mut()
+                            .copy_from_slice(&data[data_anchor..(data_anchor + io_size as usize)]);
                         self.device_engine
                             .write(
                                 new_poses[idx_anchor].offset,
                                 new_poses[idx_anchor].bid,
                                 // &data[data_anchor..(data_anchor + PAGE_SIZE as usize)],
                                 // &data[data_anchor..(data_anchor + io_size as usize)],
-                                buf.as_ref()
+                                buf.as_ref(),
                             )
                             .await
                             .unwrap();
