@@ -4,9 +4,11 @@ use crate::error::{EngineError, Result};
 use crate::utils::*;
 use async_spdk::env::DmaBuf;
 use async_spdk::event;
+use async_spdk::event::AppOpts;
 use log::*;
-use rocksdb::{DBWithThreadMode, Options, SingleThreaded, DB, Env};
+use rocksdb::{DBWithThreadMode, Env, Options, SingleThreaded, DB};
 use rusty_pool::ThreadPool;
+use std::ffi::c_void;
 use std::time::Duration;
 use std::{
     collections::HashMap,
@@ -50,32 +52,42 @@ impl MadEngineHandle {
     /// create MadEngine with rocksdb based on SPDK
     /// this implementation has bug --- need united SPDK environment
     pub async fn new_spdk(
+        opts: AppOpts,
         path: impl AsRef<Path>,
         config_file: &str,
-        device_name: &str,
+        device_name_db: &str,
+        device_name_data: &str,
     ) -> Result<Self> {
         let cpath = path.as_ref().to_str().unwrap();
-        let env= Env::rocksdb_create_spdk_env(
-            cpath, config_file, device_name, 4096
-        ).expect("fail to initilize spdk environment");
+        let box_opts = Box::new(opts.get_opts());
+        let env = Env::rocksdb_use_spdk_env(
+            Box::into_raw(box_opts) as *mut c_void,
+            cpath,
+            config_file,
+            device_name_db,
+            4096,
+        )
+        .expect("fail to initilize spdk environment");
+        // let env = Env::rocksdb_create_spdk_env(cpath, config_file, device_name, 4096)
+        //     .expect("fail to initilize spdk environment");
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.set_env(&env);
         let db = Arc::new(DB::open(&opts, path).expect("fail to open db"));
-        info!("open rocksdb on spdk");
+        info!("open rocksdb use exist spdk environment");
         if let Some(_) = db
             .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
             .unwrap()
         {
             info!("start to restore metadata");
-            return Self::restore(db, device_name, true).await;
+            return Self::restore(db.clone(), device_name_data, true).await;
         } else {
             info!("create new engine");
-            return Self::create_me(db.clone(), device_name, true).await;
+            return Self::create_me(db.clone(), device_name_data, true).await;
         }
     }
 
-    async fn get_device_engine_handle(device_name: &str, is_reload: bool) -> Arc<DeviceEngine>{
+    async fn get_device_engine_handle(device_name: &str, is_reload: bool) -> Arc<DeviceEngine> {
         Arc::new(DeviceEngine::new(device_name, is_reload).await.unwrap())
     }
 

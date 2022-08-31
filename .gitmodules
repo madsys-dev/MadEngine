@@ -1,4 +1,0 @@
-[submodule "async-spdk"]
-	path = async-spdk
-	url = https://github.com/madsys-dev/async-spdk
-	branch = dev

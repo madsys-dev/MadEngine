@@ -51,12 +51,12 @@ impl DeviceEngine {
 
     /// write data to the given blob
     pub async fn write(&self, offset: u64, blob_id: BlobId, buf: &[u8]) -> Result<()> {
-        info!(
-            "<WRITE> BlobId: {}, offset: {}, size: {}B",
-            blob_id,
-            offset,
-            buf.len()
-        );
+        // info!(
+        //     "<WRITE> BlobId: {}, offset: {}, size: {}B",
+        //     blob_id,
+        //     offset,
+        //     buf.len()
+        // );
         let blob = self.bs.open_blob(blob_id).await?;
         let channel = self.bs.alloc_io_channel()?;
         blob.write(&channel, offset, buf).await?;
