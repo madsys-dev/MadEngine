@@ -1,6 +1,6 @@
 // this is a test for cross-boundary read and write
 
-use async_spdk::*;
+use async_spdk::{*, event::app_stop};
 use log::*;
 use mad_engine::*;
 
@@ -47,5 +47,8 @@ async fn test3_helper(name: &str) -> std::result::Result<(), EngineError> {
     info!("remove file3 succeed...");
     handle.unload().await.unwrap();
     info!("cross-boundary read write succeed...");
+
+    app_stop();
+    info!("app stop");
     Ok(())
 }

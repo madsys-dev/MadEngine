@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use async_spdk::*;
+use async_spdk::{*, event::app_stop};
 use log::*;
 use mad_engine::*;
 
@@ -73,5 +73,8 @@ async fn test6_helper(name: &str) -> std::result::Result<(), EngineError> {
     handle.remove("file6".to_owned()).unwrap();
     handle.unload().await.unwrap();
     info!("test6 pass...");
+
+    app_stop();
+    info!("app stop");
     Ok(())
 }

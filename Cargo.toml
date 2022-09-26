@@ -2,4 +2,6 @@
 
 members = [
     "mad_engine",
+    "async_spdk",
+    "rust-rocksdb",
 ]

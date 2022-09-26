@@ -1,7 +1,7 @@
 // this is a test for basic read and write
 // write a file no more than 1 page then read
 
-use async_spdk::*;
+use async_spdk::{*, event::app_stop};
 use log::*;
 use mad_engine::*;
 
@@ -47,5 +47,9 @@ async fn test2_helper(name: &str) -> std::result::Result<(), EngineError> {
     info!("remove file2 succeed...");
     handle.unload().await.unwrap();
     info!("basic read write succeed...");
+
+    app_stop();
+    info!("app stop");
+
     Ok(())
 }

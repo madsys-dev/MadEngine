@@ -1,7 +1,7 @@
 // this is a test for basic create and remove
 // initialization as well
 
-use async_spdk::*;
+use async_spdk::{*, event::app_stop};
 use log::*;
 use mad_engine::*;
 
@@ -22,5 +22,7 @@ async fn test1_helper(name: &str) -> std::result::Result<(), EngineError> {
     info!("remove pass...");
     handle.unload().await.unwrap();
     info!("unload succeed...");
+    app_stop();
+    info!("app_stop");
     Ok(())
 }

@@ -25,6 +25,21 @@ fn main() {
     let db = Arc::new(DB::open(&opts, path).expect("fail to open db"));
     info!("db create succeed");
 
+    db.put(b"foo", b"bar").expect("fail to put");
+    info!("put succeed!");
+    match db.get(b"foo") {
+        Ok(Some(res)) => {
+            info!("got value {:?} succeed!", String::from_utf8(res).unwrap());
+        }
+        Ok(None) => {
+            error!("got none value");
+        }
+        Err(e) => {
+            error!("err: {:?}", e);
+        }
+    };
+    info!("Test SPDK Integration Succeed!");
+
     // let app_opts = event::AppOpts::new()
     //     .name("test7")
     //     .config_file(&std::env::args().nth(1).expect("expect config file"))

@@ -10,6 +10,7 @@ fn main() {
     event::AppOpts::new()
         .name("test5")
         .config_file(&std::env::args().nth(1).expect("no such config file"))
+        .reactor_mask("0x5")
         .block_on(test5_helper("Nvme0n1"))
         .unwrap();
 }
@@ -127,5 +128,8 @@ async fn test5_helper(name: &str) -> std::result::Result<(), EngineError> {
     handle.remove("file4".to_owned()).unwrap();
     info!("test4 pass...");
     handle.unload().await.unwrap();
+
+    app_stop();
+    info!("app stop");
     Ok(())
 }
