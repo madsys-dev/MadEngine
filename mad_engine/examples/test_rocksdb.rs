@@ -1,19 +1,20 @@
 //! This is a test for rocksdb-spdk integration
-//! Test includes: 
+//! Test includes:
 //! 1. Start spdk environment on a specific thread, reveal fs pointer
 //! 2. Use revealed pointer to start rocksdb
 //! 3. Test basic `put`, `get`
 
-use std::{sync::{Arc, Mutex}, ffi::c_void};
+use std::{
+    ffi::c_void,
+    sync::{Arc, Mutex},
+};
 
-use async_spdk::{*, blobfs::*, thread::Poller};
 use async_spdk::event::app_stop;
-
-
+use async_spdk::{blobfs::*, thread::Poller, *};
 
 use log::*;
 
-fn main(){
+fn main() {
     env_logger::init();
     let fsflag = Arc::new(Mutex::new(false));
     let fs = Arc::new(Mutex::new(SpdkFilesystem::default()));
@@ -32,7 +33,7 @@ fn main(){
             .block_on(async_main(ff2, fs2, shutdown2, shutdown_poller))
             .unwrap();
     });
-    
+
     let ff3 = fsflag.clone();
     let fs3 = fs.clone();
     let shutdown3 = shutdown.clone();
@@ -41,7 +42,6 @@ fn main(){
 
     fs_handle.join().unwrap();
     info!("rocksdb test pass...");
-    
 }
 
 fn user_app(
@@ -58,14 +58,19 @@ fn user_app(
     let fs = fs.lock().unwrap();
     info!("Get fs handle");
 
-    if fs.is_null(){
+    if fs.is_null() {
         info!("fs pointer is null");
     }
 
     let env = rocksdb::Env::rocksdb_use_spdk_env(
-        fs.ptr as *mut c_void, 0, "rocksdb_test_dir", 
-        &std::env::args().nth(1).expect("no config file"), 
-        "Malloc0", 4096).expect("fail to initialize spdk env");
+        fs.ptr as *mut c_void,
+        0,
+        "rocksdb_test_dir",
+        &std::env::args().nth(1).expect("no config file"),
+        "Malloc0",
+        4096,
+    )
+    .expect("fail to initialize spdk env");
     info!("RocksDB env success");
 
     let mut opts = rocksdb::Options::default();
@@ -80,16 +85,16 @@ fn user_app(
     db.put(b"foo", b"bar").expect("fail to put");
     info!("db put success");
 
-    match db.get(b"foo"){
-        Ok(Some(res)) =>{
+    match db.get(b"foo") {
+        Ok(Some(res)) => {
             info!("got value {:?} succeed!", String::from_utf8(res).unwrap());
-        },
-        Ok(None) =>{
+        }
+        Ok(None) => {
             info!("got none value");
-        },
-        Err(e) =>{
+        }
+        Err(e) => {
             error!("err: {:?}", e);
-        },
+        }
     };
     info!("db get success");
 
@@ -143,7 +148,3 @@ async fn async_main(
 
     Ok(())
 }
-
-
-
-

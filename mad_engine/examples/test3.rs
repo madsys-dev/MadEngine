@@ -1,6 +1,6 @@
 // this is a test for cross-boundary read and write
 
-use async_spdk::{*, event::app_stop};
+use async_spdk::{event::app_stop, *};
 use log::*;
 use mad_engine::*;
 

@@ -10,6 +10,7 @@ authors = ["Juguang Yan <coolyanjg@163.com>"]
 async-spdk = {path = "../async_spdk"}
 # async-spdk = {git = "https://github.com/madsys-dev/async-spdk", branch = "dev"}
 crc = "3.0.0"
+futures = "0.3"
 # rocksdb = "0.18.0"
 # rocksdb = {git = "https://github.com/coolyjg/rust-rocksdb", branch="spdk-integration"}
 rocksdb = {path = "../rust-rocksdb"}

@@ -1,7 +1,7 @@
 // this is a test for basic create and remove
 // initialization as well
 
-use async_spdk::{*, event::app_stop};
+use async_spdk::{event::app_stop, *};
 use log::*;
 use mad_engine::*;
 

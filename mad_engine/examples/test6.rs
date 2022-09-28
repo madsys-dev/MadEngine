@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use async_spdk::{*, event::app_stop};
+use async_spdk::{event::app_stop, *};
 use log::*;
 use mad_engine::*;
 

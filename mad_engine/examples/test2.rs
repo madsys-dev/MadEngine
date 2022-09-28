@@ -1,7 +1,7 @@
 // this is a test for basic read and write
 // write a file no more than 1 page then read
 
-use async_spdk::{*, event::app_stop};
+use async_spdk::{event::app_stop, *};
 use log::*;
 use mad_engine::*;
 
