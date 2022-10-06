@@ -18,7 +18,6 @@ use std::{
 };
 use futures::executor::block_on;
 
-#[derive(Debug)]
 pub struct EngineOpts {
     // start reactor on which core
     reactor_mask: String,
@@ -34,6 +33,14 @@ pub struct EngineOpts {
     thread_handle: Option<JoinHandle<()>>,
     // App name
     app_name: String,
+    // Flag to indicate blobfs establish
+    fsflag: Arc<Mutex<bool>>,
+    // Blobfs pointer
+    fs: Arc<Mutex<SpdkFilesystem>>,
+    // Shutdown signal
+    shutdown: Arc<Mutex<bool>>,
+    // Shutdown Poller
+    shutdown_poller: Arc<Mutex<Poller>>,
 }
 
 /// This defines the mapping between bs to core
@@ -55,6 +62,10 @@ impl Default for EngineOpts {
             blobstore_bdev_list: None,
             thread_handle: None,
             app_name: String::new(),
+            fsflag: Arc::new(Mutex::new(false)),
+            fs: Arc::new(Mutex::new(SpdkFilesystem::default())),
+            shutdown: Arc::new(Mutex::new(false)),
+            shutdown_poller: Arc::new(Mutex::new(Poller::default())),
         }
     }
 }
@@ -87,12 +98,9 @@ impl EngineOpts {
         self.app_name = app_name.to_string();
     }
 
+    // start blobfs and blobstore by given configuration
     pub fn start_spdk(
         &mut self,
-        fs: Arc<Mutex<SpdkFilesystem>>,
-        fsflag: Arc<Mutex<bool>>,
-        shutdown: Arc<Mutex<bool>>,
-        shutdown_poller: Arc<Mutex<Poller>>,
     ) {
         let app_name = if self.app_name.len() == 0 {
             "None-name app".to_string()
@@ -105,6 +113,10 @@ impl EngineOpts {
         let blobfs_bdev = self.blobfs_bdev.clone();
         let blobstore_bdev_list = self.blobstore_bdev_list.clone();
 
+        let fs = self.fs.clone();
+        let fsflag = self.fsflag.clone();
+        let shutdown = self.shutdown.clone();
+        let shutdown_poller = self.shutdown_poller.clone();
         let fs_handle = std::thread::spawn(move || {
             event::AppOpts::new()
                 .name(app_name.as_str())
@@ -137,7 +149,7 @@ impl EngineOpts {
         let shutdown_sig = shutdown.clone();
         let shutdown_poller_copy = shutdown_poller.clone();
 
-        // register a shutdonw poller
+        // register a shutdown poller
         // this is not a proper way to let user send shutdown signal
         *shutdown_poller.lock().unwrap() = Poller::register(move || {
             if *shutdown_sig.lock().unwrap() == true {
@@ -160,16 +172,26 @@ impl EngineOpts {
         }
 
         // initialize blobstore on specific core
-        blobstore_bdev_list.into_iter().for_each(|l|{
+        blobstore_bdev_list.into_iter().for_each(|opt|{
             let e = SpdkEvent::alloc(
-                l.core, 
+                opt.core, 
                 build_blobstore as *const() as *mut c_void, 
-                CString::new(l.bdev_name).expect("fail to parse bdev name").into_raw() as *mut c_void)?;
+                CString::new(opt.bdev_name).expect("fail to parse bdev name").into_raw() as *mut c_void).unwrap();
             e.call().unwrap();
         });
 
         Ok(())
     }
+
+    // call ready after start spdk to wait for blobfs if needed
+    pub fn ready(&self){
+        loop{
+            if *self.fsflag.lock().unwrap() == true{
+                break;
+            }
+        }
+    }
+
 }
 
 fn build_blobstore(bdev: *mut c_void){
