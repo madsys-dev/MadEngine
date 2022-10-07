@@ -1,7 +1,8 @@
 //! This is a plugin for establishing SPDK environment
 
+use crate::BlobEngine::BlobEngine;
 use crate::error::Result;
-use async_spdk::blob;
+use async_spdk::blob::{self, Blobstore};
 use async_spdk::blobfs::SpdkBlobfsOpts;
 use async_spdk::event::SpdkEvent;
 use async_spdk::thread::Poller;
@@ -10,13 +11,14 @@ use async_spdk::{
     blobfs::SpdkFilesystem,
     event::{self, app_stop},
 };
+use futures::executor::block_on;
 use log::*;
-use std::ffi::{CString, c_void};
+use std::ffi::{c_void, CString};
+use std::time::Duration;
 use std::{
     sync::{Arc, Mutex},
     thread::JoinHandle,
 };
-use futures::executor::block_on;
 
 pub struct EngineOpts {
     // start reactor on which core
@@ -29,12 +31,15 @@ pub struct EngineOpts {
     blobfs_bdev: Option<String>,
     // start each blobstore on specific bdev, there could be multiple blobstore
     blobstore_bdev_list: Option<Vec<BsBindOpts>>,
+    // Blobstore list
+    blobstores: Arc<Mutex<Vec<Arc<Mutex<Blobstore>>>>>,
     // SPDK start thread handle
     thread_handle: Option<JoinHandle<()>>,
     // App name
     app_name: String,
     // Flag to indicate blobfs establish
     fsflag: Arc<Mutex<bool>>,
+    bsflag: Arc<Mutex<bool>>,
     // Blobfs pointer
     fs: Arc<Mutex<SpdkFilesystem>>,
     // Shutdown signal
@@ -47,9 +52,9 @@ pub struct EngineOpts {
 #[derive(Debug, Clone)]
 pub struct BsBindOpts {
     // bdev to start blobstore
-    bdev_name: String,
+    pub bdev_name: String,
     // blobstore binding core
-    core: u32,
+    pub core: u32,
 }
 
 impl Default for EngineOpts {
@@ -60,9 +65,11 @@ impl Default for EngineOpts {
             start_blobfs: false,
             blobfs_bdev: None,
             blobstore_bdev_list: None,
+            blobstores: Arc::new(Mutex::new(vec![])),
             thread_handle: None,
             app_name: String::new(),
             fsflag: Arc::new(Mutex::new(false)),
+            bsflag: Arc::new(Mutex::new(false)),
             fs: Arc::new(Mutex::new(SpdkFilesystem::default())),
             shutdown: Arc::new(Mutex::new(false)),
             shutdown_poller: Arc::new(Mutex::new(Poller::default())),
@@ -91,17 +98,20 @@ impl EngineOpts {
     }
 
     pub fn set_blobstore(&mut self, blobstore_bdev_list: Vec<BsBindOpts>) {
-        self.blobstore_bdev_list = Some(blobstore_bdev_list);
+        self.blobstore_bdev_list = Some(blobstore_bdev_list.clone());
+        info!("Set bs success, bs: {:?}", self.blobstore_bdev_list);
     }
 
     pub fn set_name(&mut self, app_name: &str) {
         self.app_name = app_name.to_string();
     }
 
+    pub fn set_config_file(&mut self, config: String){
+        self.config_file = config.clone();
+    }
+
     // start blobfs and blobstore by given configuration
-    pub fn start_spdk(
-        &mut self,
-    ) {
+    pub fn start_spdk(&mut self) {
         let app_name = if self.app_name.len() == 0 {
             "None-name app".to_string()
         } else {
@@ -110,11 +120,14 @@ impl EngineOpts {
         let config_file = self.config_file.clone();
         let reactor_mask = self.reactor_mask.clone();
         let start_blobfs = self.start_blobfs;
+
         let blobfs_bdev = self.blobfs_bdev.clone();
         let blobstore_bdev_list = self.blobstore_bdev_list.clone();
+        let blobstores = self.blobstores.clone();
 
         let fs = self.fs.clone();
         let fsflag = self.fsflag.clone();
+        let bsflag = self.bsflag.clone();
         let shutdown = self.shutdown.clone();
         let shutdown_poller = self.shutdown_poller.clone();
         let fs_handle = std::thread::spawn(move || {
@@ -125,11 +138,13 @@ impl EngineOpts {
                 .block_on(Self::start_spdk_helper(
                     fs,
                     fsflag,
+                    bsflag,
                     shutdown,
                     shutdown_poller,
                     blobfs_bdev.as_ref(),
                     start_blobfs,
                     blobstore_bdev_list.unwrap(),
+                    blobstores,
                 ))
                 .unwrap();
         });
@@ -139,11 +154,13 @@ impl EngineOpts {
     async fn start_spdk_helper(
         fs: Arc<Mutex<SpdkFilesystem>>,
         fsflag: Arc<Mutex<bool>>,
+        bsflag: Arc<Mutex<bool>>,
         shutdown: Arc<Mutex<bool>>,
         shutdown_poller: Arc<Mutex<Poller>>,
         blobfs_bdev: Option<&String>,
         start_blobfs: bool,
         blobstore_bdev_list: Vec<BsBindOpts>,
+        blobstores: Arc<Mutex<Vec<Arc<Mutex<Blobstore>>>>>,
     ) -> Result<()> {
         let shutdown_fs = fs.clone();
         let shutdown_sig = shutdown.clone();
@@ -169,37 +186,90 @@ impl EngineOpts {
 
             *fs.lock().unwrap() = blobfs;
             *fsflag.lock().unwrap() = true;
+            info!("fs success");
         }
 
+        info!("start to initialize bs");
         // initialize blobstore on specific core
-        blobstore_bdev_list.into_iter().for_each(|opt|{
+        blobstore_bdev_list.into_iter().for_each(|opt| {
+            let mut bs_tmp = Arc::new(Mutex::new(Blobstore::default()));
             let e = SpdkEvent::alloc(
-                opt.core, 
-                build_blobstore as *const() as *mut c_void, 
-                CString::new(opt.bdev_name).expect("fail to parse bdev name").into_raw() as *mut c_void).unwrap();
+                opt.core,
+                build_blobstore as *const () as *mut c_void,
+                Box::into_raw(Box::new((
+                    CString::new(opt.bdev_name).expect("fail to parse bdev name"),
+                    // .into_raw(),
+                    bs_tmp.clone(),
+                    bsflag.clone(),
+                ))) as *mut c_void,
+            )
+            .unwrap();
             e.call().unwrap();
+            let bsflag = bsflag.clone();
+            info!("ready to push !!!!");
+            {
+                info!("push...");
+                blobstores.clone().lock().unwrap().push(bs_tmp.clone());
+                if bs_tmp.lock().unwrap().ptr.is_null(){
+                    error!("push a none pointer");
+                }
+                info!("after lock blobstores");
+            };
         });
 
         Ok(())
     }
 
     // call ready after start spdk to wait for blobfs if needed
-    pub fn ready(&self){
-        loop{
-            if *self.fsflag.lock().unwrap() == true{
+    pub fn ready(&self) {
+        loop {
+            if *self.fsflag.lock().unwrap() == true && *self.bsflag.lock().unwrap() == true{
                 break;
             }
         }
     }
 
+    pub fn finish(&mut self){
+        *self.shutdown.lock().unwrap() = true;
+    }
+
+    pub fn create_be(&self) -> BlobEngine{
+        let bs_lock = self.blobstores.lock().unwrap();
+        let bs_list = self.blobstore_bdev_list.clone().unwrap();
+        BlobEngine{
+            name: bs_list[0].bdev_name.clone(),
+            core: bs_list[0].core,
+            io_size: 512,
+            channel: None,
+            bs: bs_lock[0].clone(),
+        }
+
+    }
 }
 
-fn build_blobstore(bdev: *mut c_void){
-    let bdev = unsafe {
-        CString::from_raw(bdev as *mut _)
+fn build_blobstore(arg: *mut c_void) {
+    info!("Event call...");
+    let (bdev, mut bs, mut bsflag) = unsafe { 
+        *Box::from_raw(arg as *mut (CString, Arc<Mutex<Blobstore>>, Arc<Mutex<bool>>)) 
     };
-    let mut bs_dev = blob_bdev::BlobStoreBDev::create(bdev.into_string().unwrap().as_str()).unwrap();
-    let bs = block_on(blob::Blobstore::init(&mut bs_dev)).unwrap();
+
+    info!("before create");
+    // let bdev = unsafe { CString::from_raw(bdev as *mut _) };
+    let mut bs_dev =
+        blob_bdev::BlobStoreBDev::create(bdev.into_string().unwrap().as_str()).unwrap();
+    info!("create bs_dev success");
+    {
+        info!("before lock");
+        // *bs.lock().unwrap() = block_on(blob::Blobstore::init(&mut bs_dev)).unwrap();
+        // let mut ptr = std::ptr::null_mut();
+        // *bs.lock().unwrap() = blob::Blobstore::init_sync(&mut bs_dev, ptr as *mut c_void).unwrap();
+        blob::Blobstore::init_sync(&mut bs_dev, Arc::into_raw(bs.clone()) as *mut c_void).unwrap();
+        // std::thread::sleep(Duration::from_secs(2));
+        info!("here...");
+        *bsflag.lock().unwrap() = true;
+    }
+    if bs.lock().unwrap().ptr.is_null(){
+        error!("weird error occur");
+    }
     info!("blob store initilize success");
-    
 }
