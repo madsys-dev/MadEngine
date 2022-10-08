@@ -19,12 +19,14 @@ async fn main(){
     opts.set_config_file(config);
     opts.set_name("Test Basic");
     opts.start_spdk();
-    info!("start, wait for ready");
     opts.ready();
     info!("got ready");
     
     let be = opts.create_be();
     info!("create_be success");
+
+    tokio::time::sleep(Duration::from_secs(2));
+
     be.close().await;
     info!("close success");
     opts.finish();

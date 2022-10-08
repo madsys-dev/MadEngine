@@ -65,13 +65,9 @@ impl BlobEngine {
     }
 
     fn close_helper(arg: *mut c_void){
-        info!("close helper line1...");
         let m = unsafe { *Box::from_raw(arg as *mut Msg)};
-        info!("close helper m transfer...");
         {
-            info!("before unload");
             m.bs.unwrap().lock().unwrap().unload_sync();
-            info!("unload success");
             m.notify.unwrap().notify_one();
             info!("close success");
         }
@@ -95,6 +91,5 @@ impl BlobEngine {
         e.call().unwrap();
         info!("Wait for close notify");
         n.notified().await;
-        info!("Close success");
     }
 }

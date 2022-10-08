@@ -189,7 +189,6 @@ impl EngineOpts {
             info!("fs success");
         }
 
-        info!("start to initialize bs");
         // initialize blobstore on specific core
         blobstore_bdev_list.into_iter().for_each(|opt| {
             let mut bs_tmp = Arc::new(Mutex::new(Blobstore::default()));
@@ -206,14 +205,11 @@ impl EngineOpts {
             .unwrap();
             e.call().unwrap();
             let bsflag = bsflag.clone();
-            info!("ready to push !!!!");
             {
-                info!("push...");
                 blobstores.clone().lock().unwrap().push(bs_tmp.clone());
                 if bs_tmp.lock().unwrap().ptr.is_null(){
                     error!("push a none pointer");
                 }
-                info!("after lock blobstores");
             };
         });
 
@@ -248,24 +244,15 @@ impl EngineOpts {
 }
 
 fn build_blobstore(arg: *mut c_void) {
-    info!("Event call...");
+    info!(">>>> build_blobstore is called");
     let (bdev, mut bs, mut bsflag) = unsafe { 
         *Box::from_raw(arg as *mut (CString, Arc<Mutex<Blobstore>>, Arc<Mutex<bool>>)) 
     };
 
-    info!("before create");
-    // let bdev = unsafe { CString::from_raw(bdev as *mut _) };
     let mut bs_dev =
         blob_bdev::BlobStoreBDev::create(bdev.into_string().unwrap().as_str()).unwrap();
-    info!("create bs_dev success");
     {
-        info!("before lock");
-        // *bs.lock().unwrap() = block_on(blob::Blobstore::init(&mut bs_dev)).unwrap();
-        // let mut ptr = std::ptr::null_mut();
-        // *bs.lock().unwrap() = blob::Blobstore::init_sync(&mut bs_dev, ptr as *mut c_void).unwrap();
         blob::Blobstore::init_sync(&mut bs_dev, Arc::into_raw(bs.clone()) as *mut c_void).unwrap();
-        // std::thread::sleep(Duration::from_secs(2));
-        info!("here...");
         *bsflag.lock().unwrap() = true;
     }
     if bs.lock().unwrap().ptr.is_null(){
