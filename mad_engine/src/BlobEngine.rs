@@ -2,11 +2,11 @@
 //!
 //! Basically like a message passing module
 
+use log::*;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
-use log::*;
 
-use async_spdk::blob::{IoChannel, Blobstore};
+use async_spdk::blob::{BlobId, Blobstore, IoChannel};
 use async_spdk::event::SpdkEvent;
 use tokio::sync::Notify;
 
@@ -53,8 +53,8 @@ impl BlobEngine {
 }
 
 impl BlobEngine {
-    pub fn new(name: &str, core: u32, io_size: u64, bs: Arc<Mutex<Blobstore>>) -> Self{
-        let ret = BlobEngine{
+    pub fn new(name: &str, core: u32, io_size: u64, bs: Arc<Mutex<Blobstore>>) -> Self {
+        let ret = BlobEngine {
             name: name.to_string(),
             core,
             io_size,
@@ -64,32 +64,30 @@ impl BlobEngine {
         ret
     }
 
-    fn close_helper(arg: *mut c_void){
-        let m = unsafe { *Box::from_raw(arg as *mut Msg)};
+    pub async fn close(&self) {
+        let n = Arc::new(Notify::new());
+        let m = Msg::gen_close(n.clone(), self.bs.clone());
+        let e = SpdkEvent::alloc(
+            self.core,
+            Self::close_helper as *const () as *mut c_void,
+            Box::into_raw(Box::new(m)) as *mut c_void,
+        )
+        .unwrap();
+        e.call().unwrap();
+        info!("Wait for close notify");
+        n.notified().await;
+    }
+
+    fn close_helper(arg: *mut c_void) {
+        let m = unsafe { *Box::from_raw(arg as *mut Msg) };
         {
-            m.bs.unwrap().lock().unwrap().unload_sync();
-            m.notify.unwrap().notify_one();
+            m.bs.as_ref().unwrap().lock().unwrap().unload_sync();
+            m.notify();
             info!("close success");
         }
     }
 
-    pub async fn close(&self) {
-        let n = Arc::new(Notify::new());
-        let m = Msg{
-            op: Op::Close,
-            channel: None,
-            notify: Some(n.clone()),
-            bs: Some(self.bs.clone()),
-        };
-        let e = SpdkEvent::alloc(
-            self.core,
-            Self::close_helper as *const() as *mut c_void,
-            Box::into_raw(Box::new(
-                m
-            )) as *mut c_void
-        ).unwrap();
-        e.call().unwrap();
-        info!("Wait for close notify");
-        n.notified().await;
+    pub async fn write(&self, offset: u64, blob_id: BlobId, buf: &[u8]) -> Result<()> {
+        Ok(())
     }
 }

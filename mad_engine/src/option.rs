@@ -1,7 +1,7 @@
 //! This is a plugin for establishing SPDK environment
 
-use crate::BlobEngine::BlobEngine;
 use crate::error::Result;
+use crate::BlobEngine::BlobEngine;
 use async_spdk::blob::{self, Blobstore};
 use async_spdk::blobfs::SpdkBlobfsOpts;
 use async_spdk::event::SpdkEvent;
@@ -106,7 +106,7 @@ impl EngineOpts {
         self.app_name = app_name.to_string();
     }
 
-    pub fn set_config_file(&mut self, config: String){
+    pub fn set_config_file(&mut self, config: String) {
         self.config_file = config.clone();
     }
 
@@ -207,7 +207,7 @@ impl EngineOpts {
             let bsflag = bsflag.clone();
             {
                 blobstores.clone().lock().unwrap().push(bs_tmp.clone());
-                if bs_tmp.lock().unwrap().ptr.is_null(){
+                if bs_tmp.lock().unwrap().ptr.is_null() {
                     error!("push a none pointer");
                 }
             };
@@ -219,35 +219,33 @@ impl EngineOpts {
     // call ready after start spdk to wait for blobfs if needed
     pub fn ready(&self) {
         loop {
-            if *self.fsflag.lock().unwrap() == true && *self.bsflag.lock().unwrap() == true{
+            if *self.fsflag.lock().unwrap() == true && *self.bsflag.lock().unwrap() == true {
                 break;
             }
         }
     }
 
-    pub fn finish(&mut self){
+    pub fn finish(&mut self) {
         *self.shutdown.lock().unwrap() = true;
     }
 
-    pub fn create_be(&self) -> BlobEngine{
+    pub fn create_be(&self) -> BlobEngine {
         let bs_lock = self.blobstores.lock().unwrap();
         let bs_list = self.blobstore_bdev_list.clone().unwrap();
-        BlobEngine{
+        BlobEngine {
             name: bs_list[0].bdev_name.clone(),
             core: bs_list[0].core,
             io_size: 512,
             channel: None,
             bs: bs_lock[0].clone(),
         }
-
     }
 }
 
 fn build_blobstore(arg: *mut c_void) {
     info!(">>>> build_blobstore is called");
-    let (bdev, mut bs, mut bsflag) = unsafe { 
-        *Box::from_raw(arg as *mut (CString, Arc<Mutex<Blobstore>>, Arc<Mutex<bool>>)) 
-    };
+    let (bdev, mut bs, mut bsflag) =
+        unsafe { *Box::from_raw(arg as *mut (CString, Arc<Mutex<Blobstore>>, Arc<Mutex<bool>>)) };
 
     let mut bs_dev =
         blob_bdev::BlobStoreBDev::create(bdev.into_string().unwrap().as_str()).unwrap();
@@ -255,7 +253,7 @@ fn build_blobstore(arg: *mut c_void) {
         blob::Blobstore::init_sync(&mut bs_dev, Arc::into_raw(bs.clone()) as *mut c_void).unwrap();
         *bsflag.lock().unwrap() = true;
     }
-    if bs.lock().unwrap().ptr.is_null(){
+    if bs.lock().unwrap().ptr.is_null() {
         error!("weird error occur");
     }
     info!("blob store initilize success");
