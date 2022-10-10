@@ -2,7 +2,7 @@
 	path = async_spdk
 	url = https://github.com/madsys-dev/async-spdk
 	branch = dev
-[submodule "rust-rocksdb"]
+[submodule "rust-rocksdb-spdk"]
 	path = rust-rocksdb
-	url = https://github.com/coolyjg/rust-rocksdb
+	url = https://github.com/coolyjg/rust-rocksdb-spdk
 	branch = spdk-integration
