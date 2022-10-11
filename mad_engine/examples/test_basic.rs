@@ -24,7 +24,7 @@ async fn main() {
     let be = opts.create_be();
     info!("create_be success");
 
-    tokio::time::sleep(Duration::from_secs(2));
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     be.close().await;
     info!("close success");
