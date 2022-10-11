@@ -66,15 +66,31 @@ impl BlobEngine {
     }
 
     fn create_helper(arg: *mut c_void) {
-        let (mut m, mut bid) = unsafe { *Box::from_raw(arg as *mut (Msg, Arc<Mutex<BlobId>>)) };
+        let (mut m, mut bid, n) =
+            unsafe { *Box::from_raw(arg as *mut (Msg, Arc<Mutex<BlobId>>, Arc<Notify>)) };
         m.bs.as_ref()
             .unwrap()
             .lock()
             .unwrap()
-            .create_blob_sync(Arc::into_raw(bid.clone()) as *mut c_void)
+            .create_blob_sync(Box::into_raw(Box::new((bid.clone(), n.clone()))) as *mut c_void)
             .unwrap();
         m.notify();
         info!("Create Blob");
+    }
+
+    fn open_helper(arg: *mut c_void) {
+        let (mut m, mut blob, n) =
+            unsafe { *Box::from_raw(arg as *mut (Msg, Arc<Mutex<EngineBlob>>, Arc<Notify>)) };
+        let bid = m.blob_id.as_ref().unwrap();
+        m.bs.as_ref()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .open_blob_sync(
+                bid,
+                Box::into_raw(Box::new((blob.clone(), n.clone()))) as *mut c_void,
+            )
+            .unwrap();
     }
 
     fn op_helper(arg: *mut c_void) {
@@ -95,7 +111,7 @@ impl BlobEngine {
                 }
                 while blob.lock().unwrap().ptr.is_null() {
                     info!("Wait for SPDK reactor execution");
-                    std::thread::sleep(Duration::from_micros(10));
+                    std::thread::sleep(Duration::from_secs(3));
                 }
                 let channel = {
                     m.bs.as_ref()
@@ -125,7 +141,7 @@ impl BlobEngine {
                 }
                 while blob.lock().unwrap().ptr.is_null() {
                     info!("Wait for SPDK reactor execution");
-                    std::thread::sleep(Duration::from_micros(10));
+                    std::thread::sleep(Duration::from_secs(3));
                 }
                 let channel = {
                     m.bs.as_ref()
@@ -157,6 +173,7 @@ impl BlobEngine {
                 m.notify();
                 info!("Close BlobStore");
             }
+            _ => unimplemented!(),
         }
     }
 
@@ -176,7 +193,7 @@ impl BlobEngine {
 
     pub async fn write(&self, offset: u64, blob_id: BlobId, buf: &[u8]) -> Result<()> {
         let n = Arc::new(Notify::new());
-        let m = Msg::gen_write(n, self.bs.clone(), offset, blob_id, buf);
+        let m = Msg::gen_write(n.clone(), self.bs.clone(), offset, blob_id, buf);
         let e = SpdkEvent::alloc(
             self.core,
             Self::op_helper as *const () as *mut c_void,
@@ -191,7 +208,7 @@ impl BlobEngine {
 
     pub async fn read(&self, offset: u64, blob_id: BlobId, buf: &mut [u8]) -> Result<()> {
         let n = Arc::new(Notify::new());
-        let m = Msg::gen_read(n, self.bs.clone(), offset, blob_id, buf);
+        let m = Msg::gen_read(n.clone(), self.bs.clone(), offset, blob_id, buf);
         let e = SpdkEvent::alloc(
             self.core,
             Self::op_helper as *const () as *mut c_void,
@@ -206,7 +223,7 @@ impl BlobEngine {
 
     pub async fn delete_blob(&self, blob_id: BlobId) -> Result<()> {
         let n = Arc::new(Notify::new());
-        let m = Msg::gen_delete(n, self.bs.clone(), blob_id);
+        let m = Msg::gen_delete(n.clone(), self.bs.clone(), blob_id);
         let e = SpdkEvent::alloc(
             self.core,
             Self::op_helper as *const () as *mut c_void,
@@ -219,19 +236,45 @@ impl BlobEngine {
         Ok(())
     }
 
-    pub async fn create_blob(&self, size: u64) -> Result<EngineBlob> {
+    pub async fn create_blob(&self, size: u64) -> Result<BlobId> {
         let n = Arc::new(Notify::new());
-        let m = Msg::gen_create(n, self.bs.clone(), size);
+        let m = Msg::gen_create(n.clone(), self.bs.clone(), size);
         let mut bid = Arc::new(Mutex::new(BlobId::default()));
         let e = SpdkEvent::alloc(
             self.core,
             Self::create_helper as *const () as *mut c_void,
-            Box::into_raw(Box::new((m, bid.clone())) as *mut c_void),
+            Box::into_raw(Box::new((m, bid.clone(), n.clone()))) as *mut c_void,
         )
         .unwrap();
         e.call().unwrap();
         info!("Wait for create notify");
         n.notified().await;
-        Ok(())
+        let b = *bid.lock().unwrap();
+        Ok(b)
+    }
+
+    pub async fn open_blob(&self, bid: BlobId) -> Result<Blob> {
+        let n = Arc::new(Notify::new());
+        let m = Msg::gen_open(n.clone(), self.bs.clone(), bid);
+        let mut blob = Arc::new(Mutex::new(Blob::default()));
+        let e = SpdkEvent::alloc(
+            self.core,
+            Self::open_helper as *const () as *mut c_void,
+            Box::into_raw(Box::new((m, blob.clone(), n.clone()))) as *mut c_void,
+        )
+        .unwrap();
+        e.call().unwrap();
+        info!("Wait for open notify");
+        n.notified().await;
+        let b = *blob.lock().unwrap();
+        Ok(b)
+    }
+
+    pub async fn resize_blob(&self, blob: Blob) -> Result<()> {
+        todo!()
+    }
+
+    pub async fn sync_blob(&self, blob: Blob) -> Result<()> {
+        todo!()
     }
 }

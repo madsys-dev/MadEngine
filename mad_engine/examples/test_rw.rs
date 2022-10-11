@@ -24,6 +24,14 @@ async fn main() {
     let be = opts.create_be();
     info!("create_be success");
 
+    let blob_ = be.create_blob(1).await.unwrap();
+    info!("Blob Create Success");
+
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    be.delete_blob(blob.get_id().unwrap()).await;
+    info!("Blob Delete Success");
+
     be.close().await;
     info!("close success");
     opts.finish();

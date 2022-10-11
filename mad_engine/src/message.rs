@@ -1,6 +1,6 @@
 //! This includes I/O operation enumeration
 
-use async_spdk::blob::{BlobId, Blobstore, IoChannel};
+use async_spdk::blob::{Blob, BlobId, Blobstore, IoChannel};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
@@ -13,7 +13,10 @@ pub enum Op {
     Create,
     Delete,
     ClusterCount,
+    Open,
     Close,
+    Sync,
+    Resize,
 }
 
 pub struct Msg<'a> {
@@ -23,6 +26,7 @@ pub struct Msg<'a> {
     pub bs: Option<Arc<Mutex<Blobstore>>>,
     pub offset: Option<u64>,
     pub blob_id: Option<BlobId>,
+    pub blob: Option<Blob>,
     pub read_buf: Option<&'a mut [u8]>,
     pub write_buf: Option<&'a [u8]>,
     blob_size: Option<u64>,
@@ -41,6 +45,7 @@ impl<'a> Msg<'a> {
             bs: Some(bs),
             offset: None,
             blob_id: None,
+            blob: None,
             read_buf: None,
             write_buf: None,
             blob_size: None,
@@ -61,6 +66,7 @@ impl<'a> Msg<'a> {
             bs: Some(bs),
             offset: Some(offset),
             blob_id: Some(blob_id),
+            blob: None,
             read_buf: None,
             write_buf: Some(buf),
             blob_size: None,
@@ -81,6 +87,7 @@ impl<'a> Msg<'a> {
             bs: Some(bs),
             offset: Some(offset),
             blob_id: Some(blob_id),
+            blob: None,
             read_buf: Some(buf),
             write_buf: None,
             blob_size: None,
@@ -95,6 +102,7 @@ impl<'a> Msg<'a> {
             bs: Some(bs),
             offset: None,
             blob_id: None,
+            blob: None,
             read_buf: None,
             write_buf: None,
             blob_size: Some(blob_size),
@@ -109,9 +117,60 @@ impl<'a> Msg<'a> {
             bs: Some(bs),
             offset: None,
             blob_id: Some(blob_id),
+            blob: None,
             read_buf: None,
             write_buf: None,
             blob_size: None,
+        }
+    }
+
+    pub fn gen_open(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>, bid: BlobId) -> Self {
+        Self {
+            op: Op::Open,
+            channel: None,
+            notify: Some(notify),
+            bs: Some(bs),
+            offset: None,
+            blob_id: Some(blob_id),
+            blob: None,
+            read_buf: None,
+            write_buf: None,
+            blob_size: None,
+        }
+    }
+
+    pub fn gen_sync(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>, blob: Blob) -> Self {
+        Self {
+            op: Op::Sync,
+            channel: None,
+            notify: Some(notify),
+            bs: Some(bs),
+            offset: None,
+            blob_id: Some(blob_id),
+            blob: Some(Blob),
+            read_buf: None,
+            write_buf: None,
+            blob_size: None,
+        }
+    }
+
+    pub fn gen_resize(
+        notify: Arc<Notify>,
+        bs: Arc<Mutex<Blobstore>>,
+        blob: Blob,
+        size: u64,
+    ) -> Self {
+        Self {
+            op: Op::Sync,
+            channel: None,
+            notify: Some(notify),
+            bs: Some(bs),
+            offset: None,
+            blob_id: Some(blob_id),
+            blob: Some(Blob),
+            read_buf: None,
+            write_buf: None,
+            blob_size: Some(size),
         }
     }
 }

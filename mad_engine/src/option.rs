@@ -19,6 +19,7 @@ use std::{
     sync::{Arc, Mutex},
     thread::JoinHandle,
 };
+use tokio::sync::Notify;
 
 pub struct EngineOpts {
     // start reactor on which core
@@ -192,23 +193,29 @@ impl EngineOpts {
         // initialize blobstore on specific core
         blobstore_bdev_list.into_iter().for_each(|opt| {
             let mut bs_tmp = Arc::new(Mutex::new(Blobstore::default()));
+            let n = Arc::new(Notify::new());
             let e = SpdkEvent::alloc(
                 opt.core,
                 build_blobstore as *const () as *mut c_void,
                 Box::into_raw(Box::new((
                     CString::new(opt.bdev_name).expect("fail to parse bdev name"),
-                    // .into_raw(),
                     bs_tmp.clone(),
-                    bsflag.clone(),
+                    n.clone(),
                 ))) as *mut c_void,
             )
             .unwrap();
             e.call().unwrap();
-            let bsflag = bsflag.clone();
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                n.notified().await;
+            });
             {
                 blobstores.clone().lock().unwrap().push(bs_tmp.clone());
+                *bsflag.lock().unwrap() = true;
                 if bs_tmp.lock().unwrap().ptr.is_null() {
                     error!("push a none pointer");
+                } else {
+                    info!("create blobstore finish");
                 }
             };
         });
@@ -219,7 +226,7 @@ impl EngineOpts {
     // call ready after start spdk to wait for blobfs if needed
     pub fn ready(&self) {
         loop {
-            if *self.fsflag.lock().unwrap() == true && *self.bsflag.lock().unwrap() == true {
+            if (*self.fsflag.lock().unwrap() == true) && (*self.bsflag.lock().unwrap() == true) {
                 break;
             }
         }
@@ -244,17 +251,19 @@ impl EngineOpts {
 
 fn build_blobstore(arg: *mut c_void) {
     info!(">>>> build_blobstore is called");
-    let (bdev, mut bs, mut bsflag) =
-        unsafe { *Box::from_raw(arg as *mut (CString, Arc<Mutex<Blobstore>>, Arc<Mutex<bool>>)) };
-
+    let (bdev, mut bs, n) =
+        unsafe { *Box::from_raw(arg as *mut (CString, Arc<Mutex<Blobstore>>, Arc<Notify>)) };
     let mut bs_dev =
         blob_bdev::BlobStoreBDev::create(bdev.into_string().unwrap().as_str()).unwrap();
     {
-        blob::Blobstore::init_sync(&mut bs_dev, Arc::into_raw(bs.clone()) as *mut c_void).unwrap();
-        *bsflag.lock().unwrap() = true;
+        blob::Blobstore::init_sync(
+            &mut bs_dev,
+            Box::into_raw(Box::new((bs.clone(), n.clone()))) as *mut c_void,
+        )
+        .unwrap();
     }
     if bs.lock().unwrap().ptr.is_null() {
-        error!("weird error occur");
+        error!("error is accepted");
     }
     info!("blob store initilize success");
 }
