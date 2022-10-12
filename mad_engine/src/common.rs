@@ -52,7 +52,7 @@ impl ChunkMeta {
 }
 
 impl Chunk {
-    pub fn new(name: String, size: u64) -> Self {
+    pub fn new(name: String, _size: u64) -> Self {
         Self {
             name,
             meta: ChunkMeta::default(),

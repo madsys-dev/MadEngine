@@ -1,5 +1,5 @@
-use tokio::time::Duration;
 use async_spdk::env;
+use tokio::time::Duration;
 
 use log::*;
 use mad_engine::{BsBindOpts, EngineOpts};
@@ -44,7 +44,7 @@ async fn main() {
     let mut write_buf = env::DmaBuf::alloc(io_unit_size as usize, 0x1000);
     write_buf.as_mut().fill(0x5a);
     info!("Write buff success");
-    
+
     be.write(0, blob, write_buf.as_ref()).await.unwrap();
     info!("Write Success");
 

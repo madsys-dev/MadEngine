@@ -12,7 +12,7 @@ use async_spdk::event::SpdkEvent;
 use tokio::sync::Notify;
 
 use crate::error::Result;
-use crate::{EngineBlob, EngineOpts, Msg, Op};
+use crate::{EngineBlob, Msg, Op};
 
 pub struct BlobEngine {
     // Intuitively each blobstore need its own BlobEngine
@@ -66,7 +66,7 @@ impl BlobEngine {
     }
 
     fn create_helper(arg: *mut c_void) {
-        let (mut m, mut bid, n) =
+        let (m, bid, n) =
             unsafe { *Box::from_raw(arg as *mut (Msg, Arc<Mutex<BlobId>>, Arc<Notify>)) };
         m.bs.as_ref()
             .unwrap()
@@ -78,7 +78,7 @@ impl BlobEngine {
     }
 
     fn open_helper(arg: *mut c_void) {
-        let (mut m, mut blob, n) =
+        let (m, blob, n) =
             unsafe { *Box::from_raw(arg as *mut (Msg, Arc<Mutex<EngineBlob>>, Arc<Notify>)) };
         let bid = m.blob_id.as_ref().unwrap();
         m.bs.as_ref()
@@ -180,17 +180,21 @@ impl BlobEngine {
                     .sync_metadata_sync(Box::into_raw(Box::new(n.clone())) as *mut c_void)
                     .unwrap();
                 info!("Sync Metadata");
-            },
-            Op::Close =>{
-                m.blob.as_ref().unwrap().close_sync(Box::into_raw(Box::new(n.clone())) as *mut c_void).unwrap();
+            }
+            Op::Close => {
+                m.blob
+                    .as_ref()
+                    .unwrap()
+                    .close_sync(Box::into_raw(Box::new(n.clone())) as *mut c_void)
+                    .unwrap();
                 info!("Close Blob");
-            },
+            }
             _ => unimplemented!(),
         }
     }
 
     /// Unload BlobStore
-    /// 
+    ///
     /// All blobs must be closed
     pub async fn unload(&self) {
         let n = Arc::new(Notify::new());
@@ -256,7 +260,7 @@ impl BlobEngine {
     pub async fn create_blob(&self) -> Result<BlobId> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_create(n.clone(), self.bs.clone());
-        let mut bid = Arc::new(Mutex::new(BlobId::default()));
+        let bid = Arc::new(Mutex::new(BlobId::default()));
         let e = SpdkEvent::alloc(
             self.core,
             Self::create_helper as *const () as *mut c_void,
@@ -274,7 +278,7 @@ impl BlobEngine {
     pub async fn open_blob(&self, bid: BlobId) -> Result<Blob> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_open(n.clone(), self.bs.clone(), bid);
-        let mut blob = Arc::new(Mutex::new(Blob::default()));
+        let blob = Arc::new(Mutex::new(Blob::default()));
         let e = SpdkEvent::alloc(
             self.core,
             Self::open_helper as *const () as *mut c_void,
@@ -289,7 +293,7 @@ impl BlobEngine {
     }
 
     /// Resize a blob
-    /// 
+    ///
     /// Blob creation only creates null blob
     pub async fn resize_blob(&self, blob: Blob, size: u64) -> Result<()> {
         let n = Arc::new(Notify::new());
@@ -323,16 +327,17 @@ impl BlobEngine {
     }
 
     /// Close a blob
-    /// 
+    ///
     /// All blobs must be closed before unload blobstore
-    pub async fn close_blob(&self, blob: Blob) -> Result<()>{
+    pub async fn close_blob(&self, blob: Blob) -> Result<()> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_close(n.clone(), self.bs.clone(), blob);
         let e = SpdkEvent::alloc(
             self.core,
             Self::op_helper as *const () as *mut c_void,
             Box::into_raw(Box::new((m, n.clone()))) as *mut c_void,
-        ).unwrap();
+        )
+        .unwrap();
         e.call().unwrap();
         info!("Wait for close notify");
         n.notified().await;

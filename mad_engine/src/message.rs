@@ -38,8 +38,8 @@ impl<'a> Msg<'a> {
         self.notify.as_ref().unwrap().notify_one();
     }
 
-    pub fn gen_close(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>, blob: Blob) -> Self{
-        Self{
+    pub fn gen_close(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>, blob: Blob) -> Self {
+        Self {
             op: Op::Close,
             channel: None,
             notify: Some(notify),

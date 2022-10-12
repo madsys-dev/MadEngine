@@ -1,7 +1,7 @@
 //! This is a plugin for establishing SPDK environment
 
+use crate::blob_engine::BlobEngine;
 use crate::error::Result;
-use crate::BlobEngine::BlobEngine;
 use async_spdk::blob::{self, Blobstore};
 use async_spdk::blobfs::SpdkBlobfsOpts;
 use async_spdk::event::SpdkEvent;
@@ -11,10 +11,8 @@ use async_spdk::{
     blobfs::SpdkFilesystem,
     event::{self, app_stop},
 };
-use futures::executor::block_on;
 use log::*;
 use std::ffi::{c_void, CString};
-use std::time::Duration;
 use std::{
     sync::{Arc, Mutex},
     thread::JoinHandle,
@@ -192,7 +190,7 @@ impl EngineOpts {
 
         // initialize blobstore on specific core
         blobstore_bdev_list.into_iter().for_each(|opt| {
-            let mut bs_tmp = Arc::new(Mutex::new(Blobstore::default()));
+            let bs_tmp = Arc::new(Mutex::new(Blobstore::default()));
             let n = Arc::new(Notify::new());
             let e = SpdkEvent::alloc(
                 opt.core,
@@ -251,7 +249,7 @@ impl EngineOpts {
 
 fn build_blobstore(arg: *mut c_void) {
     info!(">>>> build_blobstore is called");
-    let (bdev, mut bs, n) =
+    let (bdev, bs, n) =
         unsafe { *Box::from_raw(arg as *mut (CString, Arc<Mutex<Blobstore>>, Arc<Notify>)) };
     let mut bs_dev =
         blob_bdev::BlobStoreBDev::create(bdev.into_string().unwrap().as_str()).unwrap();

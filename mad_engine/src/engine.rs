@@ -4,11 +4,9 @@ use crate::error::{EngineError, Result};
 use crate::utils::*;
 use async_spdk::env::DmaBuf;
 use async_spdk::event;
-use async_spdk::event::AppOpts;
 use log::*;
-use rocksdb::{DBWithThreadMode, Env, Options, SingleThreaded, DB};
+use rocksdb::{DBWithThreadMode, Options, SingleThreaded, DB};
 use rusty_pool::ThreadPool;
-use std::ffi::c_void;
 use std::time::Duration;
 use std::{
     collections::HashMap,
