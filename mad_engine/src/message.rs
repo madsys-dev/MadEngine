@@ -110,7 +110,7 @@ impl<'a> Msg<'a> {
         }
     }
 
-    pub fn gen_create(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>, blob_size: u64) -> Self {
+    pub fn gen_create(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>) -> Self {
         Self {
             op: Op::Create,
             channel: None,
@@ -121,7 +121,7 @@ impl<'a> Msg<'a> {
             blob: None,
             read_buf: None,
             write_buf: None,
-            blob_size: Some(blob_size),
+            blob_size: None,
         }
     }
 
@@ -177,7 +177,7 @@ impl<'a> Msg<'a> {
         size: u64,
     ) -> Self {
         Self {
-            op: Op::Sync,
+            op: Op::Resize,
             channel: None,
             notify: Some(notify),
             bs: Some(bs),

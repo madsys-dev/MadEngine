@@ -112,7 +112,7 @@ impl BlobEngine {
                     .write_sync(
                         &channel,
                         m.offset.unwrap(),
-                        m.write_buf.unwrap(),
+                        m.write_buf.clone().unwrap(),
                         Box::into_raw(Box::new(n.clone())) as *mut c_void,
                     )
                     .unwrap();
@@ -183,12 +183,15 @@ impl BlobEngine {
             },
             Op::Close =>{
                 m.blob.as_ref().unwrap().close_sync(Box::into_raw(Box::new(n.clone())) as *mut c_void).unwrap();
-                info!("------>Close Blob");
+                info!("Close Blob");
             },
             _ => unimplemented!(),
         }
     }
 
+    /// Unload BlobStore
+    /// 
+    /// All blobs must be closed
     pub async fn unload(&self) {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_unload(n.clone(), self.bs.clone());
@@ -209,7 +212,7 @@ impl BlobEngine {
         let e = SpdkEvent::alloc(
             self.core,
             Self::op_helper as *const () as *mut c_void,
-            Box::into_raw(Box::new(m)) as *mut c_void,
+            Box::into_raw(Box::new((m, n.clone()))) as *mut c_void,
         )
         .unwrap();
         e.call().unwrap();
@@ -233,6 +236,7 @@ impl BlobEngine {
         Ok(())
     }
 
+    /// Delete a blob
     pub async fn delete_blob(&self, blob_id: BlobId) -> Result<()> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_delete(n.clone(), self.bs.clone(), blob_id);
@@ -248,9 +252,10 @@ impl BlobEngine {
         Ok(())
     }
 
-    pub async fn create_blob(&self, size: u64) -> Result<BlobId> {
+    /// Create empty blob
+    pub async fn create_blob(&self) -> Result<BlobId> {
         let n = Arc::new(Notify::new());
-        let m = Msg::gen_create(n.clone(), self.bs.clone(), size);
+        let m = Msg::gen_create(n.clone(), self.bs.clone());
         let mut bid = Arc::new(Mutex::new(BlobId::default()));
         let e = SpdkEvent::alloc(
             self.core,
@@ -265,6 +270,7 @@ impl BlobEngine {
         Ok(b)
     }
 
+    /// Open a blob, get blob handle
     pub async fn open_blob(&self, bid: BlobId) -> Result<Blob> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_open(n.clone(), self.bs.clone(), bid);
@@ -282,6 +288,9 @@ impl BlobEngine {
         Ok(b)
     }
 
+    /// Resize a blob
+    /// 
+    /// Blob creation only creates null blob
     pub async fn resize_blob(&self, blob: Blob, size: u64) -> Result<()> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_resize(n.clone(), self.bs.clone(), blob, size);
@@ -297,6 +306,7 @@ impl BlobEngine {
         Ok(())
     }
 
+    /// Blob metadata sync
     pub async fn sync_blob(&self, blob: Blob) -> Result<()> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_sync(n.clone(), self.bs.clone(), blob);
@@ -312,6 +322,9 @@ impl BlobEngine {
         Ok(())
     }
 
+    /// Close a blob
+    /// 
+    /// All blobs must be closed before unload blobstore
     pub async fn close_blob(&self, blob: Blob) -> Result<()>{
         let n = Arc::new(Notify::new());
         let m = Msg::gen_close(n.clone(), self.bs.clone(), blob);
