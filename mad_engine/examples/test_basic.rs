@@ -24,7 +24,7 @@ async fn main() {
     let be = opts.create_be();
     info!("create_be success");
 
-    be.close().await;
+    be.unload().await;
     info!("close success");
     opts.finish();
     info!("App wait fot close");

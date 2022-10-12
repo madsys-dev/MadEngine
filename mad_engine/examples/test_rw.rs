@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use futures::TryFutureExt;
 use log::*;
 use mad_engine::{BsBindOpts, EngineOpts};
 
@@ -24,16 +25,26 @@ async fn main() {
     let be = opts.create_be();
     info!("create_be success");
 
-    let blob_ = be.create_blob(1).await.unwrap();
+    let bid = be.create_blob(1).await.unwrap();
     info!("Blob Create Success");
 
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    let blob = be.open_blob(bid).await.unwrap();
+    info!("Blob Open Success");
 
-    be.delete_blob(blob.get_id().unwrap()).await;
+    be.resize_blob(blob, 1).await.unwrap();
+    info!("Resize Success");
+
+    be.sync_blob(blob).await.unwrap();
+    info!("Sync Success");
+
+    be.close_blob(blob).await.unwrap();
+    info!("Close Success");
+
+    be.delete_blob(bid).await;
     info!("Blob Delete Success");
 
-    be.close().await;
-    info!("close success");
+    be.unload().await;
+    info!("unload success");
     opts.finish();
     info!("App wait fot close");
 }

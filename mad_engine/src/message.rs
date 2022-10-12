@@ -14,9 +14,10 @@ pub enum Op {
     Delete,
     ClusterCount,
     Open,
-    Close,
+    Unload,
     Sync,
     Resize,
+    Close,
 }
 
 pub struct Msg<'a> {
@@ -29,7 +30,7 @@ pub struct Msg<'a> {
     pub blob: Option<Blob>,
     pub read_buf: Option<&'a mut [u8]>,
     pub write_buf: Option<&'a [u8]>,
-    blob_size: Option<u64>,
+    pub blob_size: Option<u64>,
 }
 
 impl<'a> Msg<'a> {
@@ -37,9 +38,24 @@ impl<'a> Msg<'a> {
         self.notify.as_ref().unwrap().notify_one();
     }
 
-    pub fn gen_close(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>) -> Self {
-        Self {
+    pub fn gen_close(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>, blob: Blob) -> Self{
+        Self{
             op: Op::Close,
+            channel: None,
+            notify: Some(notify),
+            bs: Some(bs),
+            offset: None,
+            blob_id: None,
+            blob: Some(blob),
+            read_buf: None,
+            write_buf: None,
+            blob_size: None,
+        }
+    }
+
+    pub fn gen_unload(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>) -> Self {
+        Self {
+            op: Op::Unload,
             channel: None,
             notify: Some(notify),
             bs: Some(bs),
@@ -56,7 +72,7 @@ impl<'a> Msg<'a> {
         notify: Arc<Notify>,
         bs: Arc<Mutex<Blobstore>>,
         offset: u64,
-        blob_id: BlobId,
+        blob: Blob,
         buf: &'a [u8],
     ) -> Self {
         Self {
@@ -65,8 +81,8 @@ impl<'a> Msg<'a> {
             notify: Some(notify),
             bs: Some(bs),
             offset: Some(offset),
-            blob_id: Some(blob_id),
-            blob: None,
+            blob_id: None,
+            blob: Some(blob),
             read_buf: None,
             write_buf: Some(buf),
             blob_size: None,
@@ -77,7 +93,7 @@ impl<'a> Msg<'a> {
         notify: Arc<Notify>,
         bs: Arc<Mutex<Blobstore>>,
         offset: u64,
-        blob_id: BlobId,
+        blob: Blob,
         buf: &'a mut [u8],
     ) -> Self {
         Self {
@@ -86,8 +102,8 @@ impl<'a> Msg<'a> {
             notify: Some(notify),
             bs: Some(bs),
             offset: Some(offset),
-            blob_id: Some(blob_id),
-            blob: None,
+            blob_id: None,
+            blob: Some(blob),
             read_buf: Some(buf),
             write_buf: None,
             blob_size: None,
@@ -131,7 +147,7 @@ impl<'a> Msg<'a> {
             notify: Some(notify),
             bs: Some(bs),
             offset: None,
-            blob_id: Some(blob_id),
+            blob_id: Some(bid),
             blob: None,
             read_buf: None,
             write_buf: None,
@@ -146,8 +162,8 @@ impl<'a> Msg<'a> {
             notify: Some(notify),
             bs: Some(bs),
             offset: None,
-            blob_id: Some(blob_id),
-            blob: Some(Blob),
+            blob_id: None,
+            blob: Some(blob),
             read_buf: None,
             write_buf: None,
             blob_size: None,
@@ -166,8 +182,8 @@ impl<'a> Msg<'a> {
             notify: Some(notify),
             bs: Some(bs),
             offset: None,
-            blob_id: Some(blob_id),
-            blob: Some(Blob),
+            blob_id: None,
+            blob: Some(blob),
             read_buf: None,
             write_buf: None,
             blob_size: Some(size),
