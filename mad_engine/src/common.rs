@@ -107,7 +107,6 @@ impl DeviceInfo {
     }
 }
 
-#[derive(Debug)]
 pub struct ThreadData {
     // allocated blobs in the thread
     pub(crate) tblobs: Vec<SBlobId>,

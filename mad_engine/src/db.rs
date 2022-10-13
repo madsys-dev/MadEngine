@@ -1,12 +1,16 @@
 //! Transaction DB wrapper
 
+use crate::error::Result;
 use std::ffi::c_void;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
+use serde::{Deserialize, Serialize};
 
 use async_spdk::blobfs::SpdkFilesystem;
 use rocksdb::{
-    ColumnFamily, ColumnFamilyDescriptor, TransactionDB, TransactionDBOptions, TransactionOptions,
-    WriteOptions,
+    ColumnFamily, ColumnFamilyDescriptor, DBRawIteratorWithThreadMode, MergeOperands,
+    SingleThreaded, Transaction, TransactionDB, TransactionOptions, WriteBatchWithTransaction,
+    WriteOptions, TransactionDBOptions
 };
 
 const JNL_CF_NAME: &str = "journal_cf";
@@ -18,10 +22,19 @@ pub struct RocksdbEngine {
     txn_opts: TransactionOptions,
 }
 
+unsafe impl Send for RocksdbEngine {}
+unsafe impl Sync for RocksdbEngine {}
+
+fn rocksdb_txn_options() -> TransactionOptions {
+    let mut opts = TransactionOptions::default();
+    opts.set_lock_timeout(0);
+    opts
+}
+
 fn rocksdb_options(
     fs: Arc<Mutex<SpdkFilesystem>>,
     fs_core: u32,
-    data_path: &str,
+    data_path: impl AsRef<Path>,
     config: &str,
     bdev: &str,
     cache_size_in_mb: u64,
@@ -31,7 +44,7 @@ fn rocksdb_options(
     let env = rocksdb::Env::rocksdb_use_spdk_env(
         fs.ptr as *mut c_void,
         fs_core,
-        data_path,
+        data_path.as_ref().to_str().unwrap(),
         config,
         bdev,
         cache_size_in_mb,
@@ -54,7 +67,7 @@ fn rocksdb_txn_db_options() -> TransactionDBOptions {
 fn default_cf_options(
     fs: Arc<Mutex<SpdkFilesystem>>,
     fs_core: u32,
-    data_path: &str,
+    data_path: impl AsRef<Path>,
     config: &str,
     bdev: &str,
     cache_size_in_mb: u64,
@@ -68,16 +81,16 @@ impl RocksdbEngine {
     pub fn new(
         fs: Arc<Mutex<SpdkFilesystem>>,
         fs_core: u32,
-        data_path: &str,
+        data_path: impl AsRef<Path>,
         config: &str,
         bdev: &str,
         cache_size_in_mb: u64,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut write_opts = WriteOptions::default();
-        let mut opts = rocksdb_options(fs, fs_core, data_path, config, bdev, cache_size_in_mb);
-        let cf_opts = default_cf_options(fs, fs_core, data_path, config, bdev, cache_size_in_mb);
+        let mut opts = rocksdb_options(fs.clone(), fs_core, data_path.as_ref().to_str().clone().unwrap(), config, bdev, cache_size_in_mb);
+        let cf_opts = default_cf_options(fs.clone(), fs_core, data_path.as_ref().to_str().clone().unwrap(), config, bdev, cache_size_in_mb);
         let db = TransactionDB::<SingleThreaded>::open_cf_descriptors(
-            &ops,
+            &opts,
             &rocksdb_txn_db_options(),
             data_path,
             vec![
@@ -91,8 +104,68 @@ impl RocksdbEngine {
             db,
             jnl_cf,
             write_opts,
-            txn_opts: rocksdb_txn_db_options(),
+            txn_opts: rocksdb_txn_options(),
         };
         Ok(rocksdb_engine)
     }
+}
+
+fn full_merge(
+    _key: &[u8],
+    existing_val: Option<&[u8]>,
+    operands: &MergeOperands,
+) -> Option<Vec<u8>> {
+    let mut new_val = match existing_val {
+        Some(v) => v.into(),
+        None => vec![],
+    };
+    for op in operands {
+        match bincode::deserialize(op).unwrap() {
+            MergeOp::UpdateU64NoLessThan { offset, value } => {
+                if new_val.len() >= offset + 8 {
+                    let v = unsafe { &mut *(new_val.as_mut_ptr().add(offset) as *mut u64) };
+                    if *v < value {
+                        *v = value;
+                    }
+                }
+            }
+            MergeOp::SetU64 { offset, value } => {
+                if new_val.len() >= offset + 8 {
+                    let v = unsafe { &mut *(new_val.as_mut_ptr().add(offset) as *mut u64) };
+                    *v = value;
+                }
+            }
+            MergeOp::PutIfAbsent(value) => {
+                if new_val.is_empty() {
+                    new_val.extend_from_slice(value);
+                }
+            }
+        }
+    }
+    match new_val.is_empty() {
+        true => None,
+        false => Some(new_val),
+    }
+}
+
+fn partial_merge(
+    _key: &[u8],
+    _existing_val: Option<&[u8]>,
+    _operands: &MergeOperands,
+) -> Option<Vec<u8>> {
+    None
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MergeOp<'a> {
+    UpdateU64NoLessThan {
+        offset: usize,
+        value: u64,
+    },
+    SetU64 {
+        offset: usize,
+        value: u64,
+    },
+    #[serde(with = "serde_bytes")]
+    PutIfAbsent(&'a [u8]),
 }

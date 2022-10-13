@@ -6,9 +6,8 @@ use crate::BlobEngine;
 use crate::BsBindOpts;
 use crate::EngineOpts;
 use crate::RocksdbEngine;
-use async_spdk::env::DmaBuf;
 use async_spdk::event;
-use db::*;
+use crate::db::*;
 use futures::TryFutureExt;
 use log::*;
 use rocksdb::{DBWithThreadMode, Options, SingleThreaded, DB};
@@ -25,6 +24,7 @@ pub struct FileEngine {
     blob_engine: Arc<BlobEngine>,
     mad_engine: Arc<Mutex<MadEngine>>,
     pool: ThreadPool,
+    opts: EngineOpts,
 }
 
 impl Drop for FileEngine {
@@ -61,14 +61,17 @@ impl FileEngine {
         opts.ready();
 
         // Build TransactionDB
-        let db = Arc::new(RocksdbEngine::new(
-            opts.fs.clone(),
-            0,
-            path,
-            &config_file,
-            blobfs_dev,
-            cache_size_in_mb,
-        ));
+        let db = Arc::new(
+            RocksdbEngine::new(
+                opts.fs.clone(),
+                0,
+                path,
+                &config_file,
+                blobfs_dev,
+                cache_size_in_mb,
+            )
+            .unwrap(),
+        );
 
         let be = Arc::new(opts.create_be());
 
@@ -90,15 +93,14 @@ impl FileEngine {
             pool.spawn(async move {
                 TLS.with(move |f| {
                     let mut br = f.borrow_mut();
-                    br.tblobs = vec![blob_id.get_id().unwrap()];
+                    br.tblobs = vec![blob_id.clone()];
                     br.tfree_list = HashMap::new();
                     let bitmap = BitMap::new(BLOB_SIZE * CLUSTER_SIZE);
-                    br.tfree_list
-                        .insert(blob_id.get_id().unwrap(), bitmap.clone());
+                    br.tfree_list.insert(blob_id.clone(), bitmap.clone());
                     let mut l = me.lock().unwrap();
-                    l.blobs.push(blob_id.get_id().unwrap());
+                    l.blobs.push(blob_id.clone());
                     l.free_list
-                        .insert(blob_id.get_id().unwrap().to_string(), bitmap.clone());
+                        .insert(blob_id.clone().to_string(), bitmap.clone());
                     drop(l);
                     br.db = Some(db);
                 });
@@ -120,8 +122,54 @@ impl FileEngine {
         Ok(Self {
             db: db.clone(),
             blob_engine: be,
-            mad_engine: mad_engine,
+            mad_engine,
             pool,
+            opts,
         })
+    }
+
+    pub async fn unload_bs(&self) -> Result<()> {
+        self.blob_engine.unload().await;
+        Ok(())
+    }
+
+    pub fn close_engine(&mut self) -> Result<()> {
+        self.opts.finish();
+        Ok(())
+    }
+
+    pub fn remove(&self, name: String) -> Result<()> {
+        self.db.db.delete(name)?;
+        Ok(())
+    }
+
+    pub fn create(&self, name: String) -> Result<()> {
+        let chunk_meta = ChunkMeta::default();
+        self.db
+            .db
+            .put(name, serde_json::to_string(&chunk_meta).unwrap().as_bytes())?;
+        Ok(())
+    }
+
+    pub fn stat(&self, name: String) -> Result<StatMeta> {
+        let chunk_meta = self.db.db.get(name)?;
+        if chunk_meta.is_none() {
+            return Err(EngineError::MetaNotExist);
+        }
+        let chunk_meta: ChunkMeta =
+            serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())?;
+        let ret = StatMeta {
+            size: chunk_meta.size,
+            csum_type: chunk_meta.csum_type.clone(),
+        };
+        Ok(ret)
+    }
+
+    pub async fn write(&mut self, name: String, offset: u64, data: &[u8]) -> Result<()> {
+        todo!()
+    }
+
+    pub async fn read(&self, name: String, offset: u64, data: &mut [u8]) -> Result<()> {
+        todo!()
     }
 }
