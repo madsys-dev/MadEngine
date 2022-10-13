@@ -40,7 +40,7 @@ pub struct EngineOpts {
     fsflag: Arc<Mutex<bool>>,
     bsflag: Arc<Mutex<bool>>,
     // Blobfs pointer
-    fs: Arc<Mutex<SpdkFilesystem>>,
+    pub fs: Arc<Mutex<SpdkFilesystem>>,
     // Shutdown signal
     shutdown: Arc<Mutex<bool>>,
     // Shutdown Poller

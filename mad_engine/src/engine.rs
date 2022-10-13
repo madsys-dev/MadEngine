@@ -13,6 +13,7 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
+use db::*;
 
 // const PAGE_SIZE: u64 = 0x1000;
 // const IO_SIZE: u64 = 512;

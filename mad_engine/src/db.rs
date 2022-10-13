@@ -5,14 +5,15 @@ use std::sync::{Arc, Mutex};
 
 use async_spdk::blobfs::SpdkFilesystem;
 use rocksdb::{
-    ColumnFamily, TransactionDB, TransactionDBOptions, TransactionOptions, WriteOptions,
+    ColumnFamily, ColumnFamilyDescriptor, TransactionDB, TransactionDBOptions, TransactionOptions,
+    WriteOptions,
 };
 
 const JNL_CF_NAME: &str = "journal_cf";
 
 pub struct RocksdbEngine {
     pub db: TransactionDB,
-    txn_cf: &'static ColumnFamily,
+    jnl_cf: &'static ColumnFamily,
     write_opts: WriteOptions,
     txn_opts: TransactionOptions,
 }
@@ -50,44 +51,48 @@ fn rocksdb_txn_db_options() -> TransactionDBOptions {
     opts
 }
 
-// fn journal_cf_options() -> rocksdb::Options {
-//     rocksdb_options()
-// }
-
-// fn default_cf_options() -> rocksdb::Options {
-//     let mut opts = rocksdb_options();
-//     opts.set_merge_operator("merge", full_merge, partial_merge);
-//     opts
-// }
+fn default_cf_options(
+    fs: Arc<Mutex<SpdkFilesystem>>,
+    fs_core: u32,
+    data_path: &str,
+    config: &str,
+    bdev: &str,
+    cache_size_in_mb: u64,
+) -> rocksdb::Options {
+    let mut opts = rocksdb_options(fs, fs_core, data_path, config, bdev, cache_size_in_mb);
+    opts.set_merge_operator("merge", full_merge, partial_merge);
+    opts
+}
 
 impl RocksdbEngine {
-    pub fn new() -> Self {
+    pub fn new(
+        fs: Arc<Mutex<SpdkFilesystem>>,
+        fs_core: u32,
+        data_path: &str,
+        config: &str,
+        bdev: &str,
+        cache_size_in_mb: u64,
+    ) -> Self {
         let mut write_opts = WriteOptions::default();
-        // let db = TransactionDB::open_cf_descriptors(
-        // )
-        // let mut write_opts = WriteOptions::default();
-        // write_opts.disable_wal(!bool_from_env("MADFS_ENABLE_WAL"));
-        // let db = TransactionDB::<SingleThreaded>::open_cf_descriptors(
-        //     &rocksdb_options(),
-        //     &rocksdb_txn_db_options(),
-        //     meta_path.as_ref().join("rocksdb"),
-        //     vec![
-        //         ColumnFamilyDescriptor::new(
-        //             rocksdb::DEFAULT_COLUMN_FAMILY_NAME,
-        //             default_cf_options(),
-        //         ),
-        //         ColumnFamilyDescriptor::new(TXN_CF_NAME, txn_cf_options()),
-        //     ],
-        // )?;
-        // let txn_cf = unsafe { std::mem::transmute(db.cf_handle(TXN_CF_NAME).unwrap()) };
-        // let storage = RocksdbStorage {
-        //     db,
-        //     txn_cf,
-        //     write_opts,
-        //     txn_opts: rocksdb_txn_options(),
-        //     txns: Mutex::new(TxnTable::new()),
-        //     objects: Mutex::new(ObjectTable::new()),
-        // };
-        // Ok(storage)
+        let mut opts = rocksdb_options(fs, fs_core, data_path, config, bdev, cache_size_in_mb);
+        let cf_opts = default_cf_options(fs, fs_core, data_path, config, bdev, cache_size_in_mb);
+        let db = TransactionDB::<SingleThreaded>::open_cf_descriptors(
+            &ops,
+            &rocksdb_txn_db_options(),
+            data_path,
+            vec![
+                ColumnFamilyDescriptor::new(rocksdb::DEFAULT_COLUMN_FAMILY_NAME, cf_opts),
+                ColumnFamilyDescriptor::new(JNL_CF_NAME, opts.clone()),
+            ],
+        )
+        .unwrap();
+        let jnl_cf = unsafe { std::mem::transmute(db.cf_handle(JNL_CF_NAME).unwrap()) };
+        let rocksdb_engine = RocksdbEngine {
+            db,
+            jnl_cf,
+            write_opts,
+            txn_opts: rocksdb_txn_db_options(),
+        };
+        Ok(rocksdb_engine)
     }
 }
