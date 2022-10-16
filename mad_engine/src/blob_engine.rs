@@ -210,7 +210,8 @@ impl BlobEngine {
         n.notified().await;
     }
 
-    pub async fn write(&self, offset: u64, blob: Blob, buf: &[u8]) -> Result<()> {
+    pub async fn write(&self, offset: u64, bid: BlobId, buf: &[u8]) -> Result<()> {
+        let blob = Self::open_blob(&self, bid).await?;
         let n = Arc::new(Notify::new());
         let m = Msg::gen_write(n.clone(), self.bs.clone(), offset, blob, buf);
         let e = SpdkEvent::alloc(
@@ -222,10 +223,12 @@ impl BlobEngine {
         e.call().unwrap();
         info!("Wait for write notify");
         n.notified().await;
+        Self::close_blob(&self, blob).await?;
         Ok(())
     }
 
-    pub async fn read(&self, offset: u64, blob: Blob, buf: &mut [u8]) -> Result<()> {
+    pub async fn read(&self, offset: u64, bid: BlobId, buf: &mut [u8]) -> Result<()> {
+        let blob = Self::open_blob(&self, bid).await?;
         let n = Arc::new(Notify::new());
         let m = Msg::gen_read(n.clone(), self.bs.clone(), offset, blob, buf);
         let e = SpdkEvent::alloc(
@@ -237,6 +240,7 @@ impl BlobEngine {
         e.call().unwrap();
         info!("Wait for read notify");
         n.notified().await;
+        Self::close_blob(&self, blob).await?;
         Ok(())
     }
 

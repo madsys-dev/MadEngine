@@ -45,12 +45,12 @@ async fn main() {
     write_buf.as_mut().fill(0x5a);
     info!("Write buff success");
 
-    be.write(0, blob, write_buf.as_ref()).await.unwrap();
+    be.write(0, bid, write_buf.as_ref()).await.unwrap();
     info!("Write Success");
 
     let mut read_buf = env::DmaBuf::alloc(io_unit_size as usize, 0x1000);
 
-    be.read(0, blob, read_buf.as_mut()).await.unwrap();
+    be.read(0, bid, read_buf.as_mut()).await.unwrap();
     info!("Read Success");
 
     if write_buf.as_ref() != read_buf.as_ref() {
