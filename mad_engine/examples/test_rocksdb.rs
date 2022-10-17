@@ -55,22 +55,24 @@ fn user_app(
         }
     }
 
-    let fs = fs.lock().unwrap();
-    info!("Get fs handle");
+    // let fs = fs.lock().unwrap();
+    // info!("Get fs handle");
 
-    if fs.is_null() {
-        info!("fs pointer is null");
-    }
+    // if fs.is_null() {
+    //     info!("fs pointer is null");
+    // }
 
-    let env = rocksdb::Env::rocksdb_use_spdk_env(
-        fs.ptr as *mut c_void,
-        0,
-        "rocksdb_test_dir",
-        &std::env::args().nth(1).expect("no config file"),
-        "Malloc0",
-        4096,
-    )
-    .expect("fail to initialize spdk env");
+    let env = {
+        rocksdb::Env::rocksdb_use_spdk_env(
+            fs.lock().unwrap().ptr as *mut c_void,
+            0,
+            "rocksdb_test_dir",
+            &std::env::args().nth(1).expect("no config file"),
+            "Malloc0",
+            4096,
+        )
+        .expect("fail to initialize spdk env")
+    };
     info!("RocksDB env success");
 
     let mut opts = rocksdb::Options::default();
@@ -98,8 +100,8 @@ fn user_app(
     };
     info!("db get success");
 
-    drop(db);
-    drop(fs);
+    // drop(db);
+    // drop(fs);
 
     *shutdown.lock().unwrap() = true;
     info!("Set shutdown to true");

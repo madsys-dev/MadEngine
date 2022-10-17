@@ -1,6 +1,5 @@
 use crate::common::*;
 use crate::db::*;
-use crate::device_engine::*;
 use crate::error::{EngineError, Result};
 use crate::utils::*;
 use crate::BlobEngine;
@@ -46,6 +45,7 @@ impl FileEngine {
         bs_core: u32,
         app_name: &str,
         cache_size_in_mb: u64,
+        init_blob_size: u64,
     ) -> Result<Self> {
         // Set SPDK opts
         let mut opts = EngineOpts::default();
@@ -84,8 +84,9 @@ impl FileEngine {
             let handle = be.clone();
             let blob_id = handle.create_blob().await?;
             let blob = handle.open_blob(blob_id).await?;
-            handle.resize_blob(blob, 64).await?;
+            handle.resize_blob(blob, init_blob_size).await?;
             handle.sync_blob(blob).await?;
+            handle.close_blob(blob).await?;
 
             let db = db.clone();
             let me = mad_engine.clone();
@@ -145,7 +146,6 @@ impl FileEngine {
     pub fn create(&self, name: String) -> Result<()> {
         let chunk_meta = ChunkMeta::default();
         self.db
-            .db
             .put(name, serde_json::to_string(&chunk_meta).unwrap().as_bytes())?;
         Ok(())
     }
@@ -319,14 +319,15 @@ impl FileEngine {
         drop(l);
         let mut idx_anchor = 0;
         let mut data_anchor = 0;
-        for (i, pos) in poses.iter().enumerate(){
+        for (i, pos) in poses.iter().enumerate() {
             let mut buf = DmaBuf::alloc((io_size) as usize, 0x1000);
             // read first page
-            if i == 0{
+            if i == 0 {
                 self.blob_engine
                     .clone()
                     .read(pos.offset, pos.bid, buf.as_mut())
-                    .await.unwrap();
+                    .await
+                    .unwrap();
                 let buffer = buf.as_mut();
                 buffer[(offset - start_page * io_size) as usize..].copy_from_slice(
                     &data[data_anchor..(io_size - (offset - start_page * io_size)) as usize],
@@ -343,14 +344,13 @@ impl FileEngine {
                     .unwrap();
                 idx_anchor += 1;
                 data_anchor += (io_size - (offset - start_page * io_size)) as usize;
-            }else if i == poses.len() - 1{
+            } else if i == poses.len() - 1 {
                 // all over write
                 if end_page as i64 == last_page {
                     if size <= offset + len {
                         let buffer = buf.as_mut();
                         buffer.fill(0);
-                        buffer[0..(data.len() - data_anchor)]
-                            .copy_from_slice(&data[data_anchor..]);
+                        buffer[0..(data.len() - data_anchor)].copy_from_slice(&data[data_anchor..]);
                         checksum_vec[i + start_page as usize] =
                             Hasher::new().checksum(buffer.as_ref());
                         self.blob_engine
@@ -400,8 +400,7 @@ impl FileEngine {
                     let buffer = buf.as_mut();
                     buffer[0..(offset + len - end_page * io_size) as usize]
                         .copy_from_slice(&data[data_anchor..]);
-                    checksum_vec[i + start_page as usize] =
-                        Hasher::new().checksum(buffer.as_ref());
+                    checksum_vec[i + start_page as usize] = Hasher::new().checksum(buffer.as_ref());
                     self.blob_engine
                         .clone()
                         .write(
@@ -413,7 +412,7 @@ impl FileEngine {
                         .unwrap();
                     idx_anchor += 1;
                     data_anchor = data.len();
-                }else {
+                } else {
                     self.blob_engine
                         .clone()
                         .write(
@@ -437,13 +436,13 @@ impl FileEngine {
                     )
                     .await
                     .unwrap();
-                checksum_vec[i + start_page as usize] = Hasher::new()
-                    .checksum(&data[data_anchor..(data_anchor + io_size as usize)]);
+                checksum_vec[i + start_page as usize] =
+                    Hasher::new().checksum(&data[data_anchor..(data_anchor + io_size as usize)]);
                 idx_anchor += 1;
                 data_anchor += io_size as usize;
             }
         }
-        if end_page as i64 > last_page{
+        if end_page as i64 > last_page {
             for page in last_page + 1..=end_page as i64 {
                 let mut buf = DmaBuf::alloc((io_size) as usize, 0x1000);
                 buf.as_mut().fill(0);

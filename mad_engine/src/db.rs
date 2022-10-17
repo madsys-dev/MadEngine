@@ -22,6 +22,10 @@ pub struct RocksdbEngine {
     txn_opts: TransactionOptions,
 }
 
+impl Drop for RocksdbEngine {
+    fn drop(&mut self) {}
+}
+
 unsafe impl Send for RocksdbEngine {}
 unsafe impl Sync for RocksdbEngine {}
 
@@ -40,20 +44,23 @@ fn rocksdb_options(
     cache_size_in_mb: u64,
 ) -> rocksdb::Options {
     let mut opts = rocksdb::Options::default();
-    let fs = fs.lock().unwrap();
-    let env = rocksdb::Env::rocksdb_use_spdk_env(
-        fs.ptr as *mut c_void,
-        fs_core,
-        data_path.as_ref().to_str().unwrap(),
-        config,
-        bdev,
-        cache_size_in_mb,
-    )
-    .expect("fail to initilize spdk env");
+    // let fs = fs.lock().unwrap();
+    let env = {
+        rocksdb::Env::rocksdb_use_spdk_env(
+            fs.lock().unwrap().ptr as *mut c_void,
+            fs_core,
+            data_path.as_ref().to_str().unwrap(),
+            config,
+            bdev,
+            cache_size_in_mb,
+        )
+        .expect("fail to initilize spdk env")
+    };
     opts.create_if_missing(true);
     opts.set_env(&env);
     opts.increase_parallelism(4);
     opts.create_missing_column_families(true);
+    // drop(fs);
     opts
 }
 
