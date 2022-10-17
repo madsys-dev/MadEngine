@@ -120,13 +120,16 @@ impl FileEngine {
             serde_json::to_string(&global).unwrap().as_bytes(),
         )?;
 
-        Ok((Self {
-            db,
-            blob_engine: be,
-            mad_engine,
-            pool,
-            // opts,
-        }, opts))
+        Ok((
+            Self {
+                db,
+                blob_engine: be,
+                mad_engine,
+                pool,
+                // opts,
+            },
+            opts,
+        ))
     }
 
     pub fn remove(&self, name: String) -> Result<()> {

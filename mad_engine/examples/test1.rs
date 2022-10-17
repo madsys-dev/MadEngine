@@ -26,15 +26,13 @@ async fn main() {
     .unwrap();
     info!("get handle success");
     handle.create("file1".to_string()).unwrap();
-    info!("create file pass...");
+    info!("create file success");
     handle.remove("file1".to_string()).unwrap();
-    info!("remove file pass...");
+    info!("remove file success");
     handle.unload_bs().await.unwrap();
-    info!("unload blobstore pass...");
-    // handle.close_engine().unwrap();
+    info!("unload blobstore success");
     drop(handle);
     tokio::time::sleep(Duration::from_secs(1)).await;
-    // info!("close engine pass...");
     opts.finish();
-    info!("close engine pass...");
+    info!("close engine success");
 }

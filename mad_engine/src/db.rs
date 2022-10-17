@@ -145,7 +145,6 @@ impl RocksdbEngine {
         let ret = self.db.get(key)?;
         Ok(ret)
     }
-
 }
 
 fn full_merge(
