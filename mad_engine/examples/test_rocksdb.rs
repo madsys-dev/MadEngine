@@ -68,7 +68,7 @@ fn user_app(
             0,
             "rocksdb_test_dir",
             &std::env::args().nth(1).expect("no config file"),
-            "Malloc0",
+            "Nvme0n1",
             4096,
         )
         .expect("fail to initialize spdk env")
@@ -100,7 +100,9 @@ fn user_app(
     };
     info!("db get success");
 
-    // drop(db);
+    // drop DB before send shutdown is necessary
+    // Rocksdb may hold some open blob so that spdk cannot be close successfully
+    drop(db);
     // drop(fs);
 
     *shutdown.lock().unwrap() = true;
@@ -117,7 +119,7 @@ async fn async_main(
 ) -> Result<()> {
     info!("start main: hello_blobfs");
 
-    let mut bdev = blob_bdev::BlobStoreBDev::create("Malloc0")?;
+    let mut bdev = blob_bdev::BlobStoreBDev::create("Nvme0n1")?;
     info!("BlobStoreBdev created");
 
     let mut blobfs_opt = SpdkBlobfsOpts::init().await?;
@@ -132,7 +134,7 @@ async fn async_main(
 
     *shutdown_poller.lock().unwrap() = Poller::register(move || {
         if *shutdown_copy.lock().unwrap() == true {
-            info!("shutdonw poller receive shutdown signal");
+            info!("shutdown poller receive shutdown signal");
             shutdown_fs.lock().unwrap().unload_sync().unwrap();
             info!("unload fs success");
             shutdown_poller_copy.lock().unwrap().unregister();

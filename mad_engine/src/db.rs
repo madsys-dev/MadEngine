@@ -20,6 +20,7 @@ pub struct RocksdbEngine {
     jnl_cf: &'static ColumnFamily,
     write_opts: WriteOptions,
     txn_opts: TransactionOptions,
+    pub db_opts: rocksdb::Options,
 }
 
 impl Drop for RocksdbEngine {
@@ -126,6 +127,7 @@ impl RocksdbEngine {
             jnl_cf,
             write_opts,
             txn_opts: rocksdb_txn_options(),
+            db_opts: opts,
         };
         Ok(rocksdb_engine)
     }
@@ -143,6 +145,7 @@ impl RocksdbEngine {
         let ret = self.db.get(key)?;
         Ok(ret)
     }
+
 }
 
 fn full_merge(

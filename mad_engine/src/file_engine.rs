@@ -10,6 +10,7 @@ use async_spdk::env::DmaBuf;
 use async_spdk::event;
 use futures::TryFutureExt;
 use log::*;
+use rocksdb::TransactionDB;
 use rocksdb::{DBWithThreadMode, Options, SingleThreaded, DB};
 use rusty_pool::ThreadPool;
 use std::time::Duration;
@@ -27,7 +28,7 @@ pub struct FileEngine {
     blob_engine: Arc<BlobEngine>,
     mad_engine: Arc<Mutex<MadEngine>>,
     pool: ThreadPool,
-    opts: EngineOpts,
+    // opts: EngineOpts,
 }
 
 impl Drop for FileEngine {
@@ -46,7 +47,7 @@ impl FileEngine {
         app_name: &str,
         cache_size_in_mb: u64,
         init_blob_size: u64,
-    ) -> Result<Self> {
+    ) -> Result<(Self, EngineOpts)> {
         // Set SPDK opts
         let mut opts = EngineOpts::default();
         opts.set_blobfs(blobfs_dev);
@@ -119,23 +120,13 @@ impl FileEngine {
             serde_json::to_string(&global).unwrap().as_bytes(),
         )?;
 
-        Ok(Self {
-            db: db.clone(),
+        Ok((Self {
+            db,
             blob_engine: be,
             mad_engine,
             pool,
-            opts,
-        })
-    }
-
-    pub async fn unload_bs(&self) -> Result<()> {
-        self.blob_engine.unload().await;
-        Ok(())
-    }
-
-    pub fn close_engine(&mut self) -> Result<()> {
-        self.opts.finish();
-        Ok(())
+            // opts,
+        }, opts))
     }
 
     pub fn remove(&self, name: String) -> Result<()> {
@@ -151,7 +142,7 @@ impl FileEngine {
     }
 
     pub fn stat(&self, name: String) -> Result<StatMeta> {
-        let chunk_meta = self.db.db.get(name)?;
+        let chunk_meta = self.db.get(name)?;
         if chunk_meta.is_none() {
             return Err(EngineError::MetaNotExist);
         }
@@ -561,6 +552,20 @@ impl FileEngine {
                 anchor += io_size as usize;
             }
         }
+        Ok(())
+    }
+
+    pub async fn unload_bs(&self) -> Result<()> {
+        self.blob_engine.unload().await;
+        Ok(())
+    }
+
+    pub fn close_engine(&mut self) -> Result<()> {
+        // drop(self.db);
+        // self.db.db.close_db();
+        // self.db.close_db();
+        // self.opts.finish();
+        self.pool.to_owned().shutdown();
         Ok(())
     }
 }

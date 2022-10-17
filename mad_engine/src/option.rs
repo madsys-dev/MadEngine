@@ -221,7 +221,7 @@ impl EngineOpts {
         Ok(())
     }
 
-    // call ready after start spdk to wait for blobfs if needed
+    /// call ready after start spdk to wait for blobfs if needed
     pub fn ready(&self) {
         loop {
             if (*self.fsflag.lock().unwrap() == true) && (*self.bsflag.lock().unwrap() == true) {
@@ -230,6 +230,7 @@ impl EngineOpts {
         }
     }
 
+    /// Send shutdown signal to SPDK env
     pub fn finish(&mut self) {
         *self.shutdown.lock().unwrap() = true;
     }
