@@ -206,7 +206,7 @@ impl BlobEngine {
         )
         .unwrap();
         e.call().unwrap();
-        info!("Wait for unload notify");
+        // info!("Wait for unload notify");
         n.notified().await;
     }
 
@@ -221,7 +221,7 @@ impl BlobEngine {
         )
         .unwrap();
         e.call().unwrap();
-        info!("Wait for write notify");
+        // info!("Wait for write notify");
         n.notified().await;
         Self::close_blob(&self, blob).await?;
         Ok(())
@@ -238,7 +238,7 @@ impl BlobEngine {
         )
         .unwrap();
         e.call().unwrap();
-        info!("Wait for read notify");
+        // info!("Wait for read notify");
         n.notified().await;
         Self::close_blob(&self, blob).await?;
         Ok(())
@@ -255,7 +255,7 @@ impl BlobEngine {
         )
         .unwrap();
         e.call().unwrap();
-        info!("Wait for delete notify");
+        // info!("Wait for delete notify");
         n.notified().await;
         Ok(())
     }
@@ -272,7 +272,7 @@ impl BlobEngine {
         )
         .unwrap();
         e.call().unwrap();
-        info!("Wait for create notify");
+        // info!("Wait for create notify");
         n.notified().await;
         let b = *bid.lock().unwrap();
         Ok(b)
@@ -290,7 +290,7 @@ impl BlobEngine {
         )
         .unwrap();
         e.call().unwrap();
-        info!("Wait for open notify");
+        // info!("Wait for open notify");
         n.notified().await;
         let b = *blob.lock().unwrap();
         Ok(b)
@@ -309,7 +309,7 @@ impl BlobEngine {
         )
         .unwrap();
         e.call().unwrap();
-        info!("Wait for Resize notify");
+        // info!("Wait for Resize notify");
         n.notified().await;
         Ok(())
     }
@@ -325,7 +325,7 @@ impl BlobEngine {
         )
         .unwrap();
         e.call().unwrap();
-        info!("Wait for sync notify");
+        // info!("Wait for sync notify");
         n.notified().await;
         Ok(())
     }
@@ -343,7 +343,7 @@ impl BlobEngine {
         )
         .unwrap();
         e.call().unwrap();
-        info!("Wait for close notify");
+        // info!("Wait for close notify");
         n.notified().await;
         Ok(())
     }

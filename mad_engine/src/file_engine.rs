@@ -183,10 +183,10 @@ impl FileEngine {
         let end_page = (offset + len - 1) / io_size;
         // last page before this write, -1 if this is first write
         let mut last_page = size as i64 / io_size as i64;
-        info!(
-            "WRITE: start page: {}\ncover_end_page: {}\nend_page: {}\nlast_page: {}",
-            start_page, cover_end_page, end_page, last_page
-        );
+        // info!(
+        //     "WRITE: start page: {}\ncover_end_page: {}\nend_page: {}\nlast_page: {}",
+        //     start_page, cover_end_page, end_page, last_page
+        // );
 
         // first write
         if size == 0 {
