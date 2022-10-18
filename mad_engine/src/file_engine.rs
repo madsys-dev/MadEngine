@@ -217,6 +217,140 @@ impl FileEngine {
         Ok(ret)
     }
 
+    /// get all new positions to write new data
+    /// recycle old positions
+    fn allocate_and_recycle_poses(
+        &self,
+        poses_copy: Vec<PagePos>,
+        mut global_meta: MadEngine,
+        total_page_num: u64,
+    ) -> (Vec<PagePos>, HashMap<String, BitMap>) {
+        let db_copy = self.db.clone();
+        let (new_poses, new_blob2map) = self
+            .pool
+            .complete(async move {
+                let mut ret = vec![];
+                let mut new_blob2map = global_meta.free_list.clone();
+                TLS.with(|f| {
+                    let mut br = f.borrow_mut();
+                    let mut cnt = total_page_num;
+                    while cnt > 0 {
+                        let tblobs = br.tblobs.clone();
+                        for bid in tblobs.iter() {
+                            let bm = br.tfree_list.get_mut(&bid);
+                            if bm.is_none() {
+                                continue;
+                            }
+                            let bm = bm.unwrap();
+                            let idx = bm.find().unwrap();
+                            // TODO: here should check full or not
+                            ret.push(PagePos {
+                                bid: bid.clone(),
+                                offset: idx,
+                            });
+                            bm.set(idx);
+                            global_meta
+                                .free_list
+                                .insert(bid.clone().to_string(), bm.clone());
+                            cnt -= 1;
+                            if cnt == 0 {
+                                break;
+                            }
+                        }
+                    }
+                    // recycle old pages
+                    // TODO: implement a merger
+                    let mut new_blobs = vec![];
+                    for pos in poses_copy {
+                        let e = new_blob2map.get_mut(&pos.bid.to_string()).unwrap();
+                        e.clear(pos.offset);
+                        drop(e);
+                        let mut flag = false;
+                        let tblobs = br.tblobs.clone();
+                        for bid in tblobs.iter() {
+                            if *bid == pos.bid {
+                                let bm = br.tfree_list.get_mut(&bid);
+                                bm.unwrap().clear(pos.offset);
+                                flag = true;
+                                break;
+                            }
+                        }
+                        // not in the old tblobs, but maybe in the newblobs
+                        if flag == false {
+                            for bid in new_blobs.iter() {
+                                if *bid == pos.bid {
+                                    flag = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if flag == false {
+                            new_blobs.push(pos.bid);
+                            let mut bm = BitMap::new_set_ones(BLOB_SIZE * CLUSTER_SIZE);
+                            bm.clear(pos.offset);
+                            br.tfree_list.insert(pos.bid, bm);
+                        } else {
+                            let bm = br.tfree_list.get_mut(&pos.bid).unwrap();
+                            bm.clear(pos.offset);
+                        }
+                    }
+                    for new_blob in new_blobs {
+                        br.tblobs.push(new_blob);
+                    }
+                    global_meta.free_list = new_blob2map.clone();
+                    db_copy
+                        .put(
+                            Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
+                            serde_json::to_string(&global_meta.clone())
+                                .unwrap()
+                                .as_bytes(),
+                        )
+                        .unwrap();
+                });
+                (ret, new_blob2map)
+            })
+            .await_complete();
+        (new_poses, new_blob2map)
+    }
+
+    /// partial write a page
+    async fn partial_write(
+        &self,
+        i: usize,
+        pos: &PagePos,
+        buf: &mut DmaBuf,
+        offset: u64,
+        len: u64,
+        start_page: u64,
+        end_page: u64,
+        io_size: u64,
+        data_anchor: &mut usize,
+        data: &[u8],
+        checksum_vec: &mut Vec<u32>,
+        idx_anchor: &mut usize,
+        new_poses: &Vec<PagePos>,
+    ) -> Result<()> {
+        self.blob_engine
+            .read(pos.offset, pos.bid, buf.as_mut())
+            .await
+            .unwrap();
+        let buffer = buf.as_mut();
+        buffer[0..(offset + len - end_page * io_size) as usize]
+            .copy_from_slice(&data[*data_anchor..]);
+        checksum_vec[i + start_page as usize] = Hasher::new().checksum(buffer.as_ref());
+        self.blob_engine
+            .write(
+                new_poses[*idx_anchor].offset,
+                new_poses[*idx_anchor].bid,
+                buffer,
+            )
+            .await
+            .unwrap();
+        *idx_anchor = *idx_anchor + 1;
+        *data_anchor = data.len();
+        Ok(())
+    }
+
     /// write file
     pub async fn write(&mut self, name: String, offset: u64, data: &[u8]) -> Result<()> {
         let io_size = IO_SIZE;
@@ -280,90 +414,9 @@ impl FileEngine {
         // recycle old positions
         let poses_copy = poses.clone();
         let db_copy = self.db.clone();
-        let (new_poses, new_blob2map) = self
-            .pool
-            .complete(async move {
-                let mut ret = vec![];
-                let mut new_blob2map = global_meta.free_list.clone();
-                TLS.with(|f| {
-                    let mut br = f.borrow_mut();
-                    let mut cnt = total_page_num;
-                    while cnt > 0 {
-                        let tblobs = br.tblobs.clone();
-                        for bid in tblobs.iter() {
-                            let bm = br.tfree_list.get_mut(&bid);
-                            if bm.is_none() {
-                                continue;
-                            }
-                            let bm = bm.unwrap();
-                            let idx = bm.find().unwrap();
-                            // TODO: here should check full or not
-                            ret.push(PagePos {
-                                bid: bid.clone(),
-                                offset: idx,
-                            });
-                            bm.set(idx);
-                            global_meta
-                                .free_list
-                                .insert(bid.clone().to_string(), bm.clone());
-                            cnt -= 1;
-                            if cnt == 0 {
-                                break;
-                            }
-                        }
-                    }
-                    // recycle old pages
-                    // TODO: do a merger
-                    let mut new_blobs = vec![];
-                    for pos in poses_copy {
-                        let e = new_blob2map.get_mut(&pos.bid.to_string()).unwrap();
-                        e.clear(pos.offset);
-                        drop(e);
-                        let mut flag = false;
-                        let tblobs = br.tblobs.clone();
-                        for bid in tblobs.iter() {
-                            if *bid == pos.bid {
-                                let bm = br.tfree_list.get_mut(&bid);
-                                bm.unwrap().clear(pos.offset);
-                                flag = true;
-                                break;
-                            }
-                        }
-                        // not in the old tblobs, but maybe in the newblobs
-                        if flag == false {
-                            for bid in new_blobs.iter() {
-                                if *bid == pos.bid {
-                                    flag = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if flag == false {
-                            new_blobs.push(pos.bid);
-                            let mut bm = BitMap::new_set_ones(BLOB_SIZE * CLUSTER_SIZE);
-                            bm.clear(pos.offset);
-                            br.tfree_list.insert(pos.bid, bm);
-                        } else {
-                            let bm = br.tfree_list.get_mut(&pos.bid).unwrap();
-                            bm.clear(pos.offset);
-                        }
-                    }
-                    for new_blob in new_blobs {
-                        br.tblobs.push(new_blob);
-                    }
-                    global_meta.free_list = new_blob2map.clone();
-                    db_copy
-                        .put(
-                            Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
-                            serde_json::to_string(&global_meta.clone())
-                                .unwrap()
-                                .as_bytes(),
-                        )
-                        .unwrap();
-                });
-                (ret, new_blob2map)
-            })
-            .await_complete();
+        let (new_poses, new_blob2map) =
+            Self::allocate_and_recycle_poses(&self, poses_copy, global_meta, total_page_num);
+
         let mut l = self.mad_engine.lock().unwrap();
         l.free_list = new_blob2map;
         drop(l);
@@ -397,6 +450,10 @@ impl FileEngine {
             } else if i == poses.len() - 1 {
                 // all over write
                 if end_page as i64 == last_page {
+                    /*
+                        origin last page: |------00000|
+                        write:            |xxxxxxxxx00|
+                    */
                     if size <= offset + len {
                         let buffer = buf.as_mut();
                         buffer.fill(0);
@@ -414,55 +471,63 @@ impl FileEngine {
                             .unwrap();
                         idx_anchor += 1;
                         data_anchor = data.len();
-                    } else {
-                        self.blob_engine
-                            .clone()
-                            .read(pos.offset, pos.bid, buf.as_mut())
-                            .await
-                            .unwrap();
-                        let buffer = buf.as_mut();
-                        buffer[0..(offset + len - end_page * io_size) as usize]
-                            .copy_from_slice(&data[data_anchor..]);
-                        checksum_vec[i + start_page as usize] =
-                            Hasher::new().checksum(buffer.as_ref());
-                        self.blob_engine
-                            .clone()
-                            .write(
-                                new_poses[idx_anchor].offset,
-                                new_poses[idx_anchor].bid,
-                                buffer,
-                            )
-                            .await
-                            .unwrap();
-                        idx_anchor += 1;
-                        data_anchor = data.len();
                     }
-                }
-                // partial overwrite, but not exceed last page
-                else if last_page > end_page as i64 {
-                    self.blob_engine
-                        .clone()
-                        .read(pos.offset, pos.bid, buf.as_mut())
-                        .await
-                        .unwrap();
-                    let buffer = buf.as_mut();
-                    buffer[0..(offset + len - end_page * io_size) as usize]
-                        .copy_from_slice(&data[data_anchor..]);
-                    checksum_vec[i + start_page as usize] = Hasher::new().checksum(buffer.as_ref());
-                    self.blob_engine
-                        .clone()
-                        .write(
-                            new_poses[idx_anchor].offset,
-                            new_poses[idx_anchor].bid,
-                            buffer,
+                    /*
+                        origin last page: |------00000|
+                        write:            |xxxx0000000|
+                    */
+                    else {
+                        Self::partial_write(
+                            &self,
+                            i,
+                            &pos,
+                            &mut buf,
+                            offset,
+                            len,
+                            start_page,
+                            end_page,
+                            io_size,
+                            &mut data_anchor,
+                            data,
+                            &mut checksum_vec,
+                            &mut idx_anchor,
+                            &new_poses,
                         )
                         .await
                         .unwrap();
-                    idx_anchor += 1;
-                    data_anchor = data.len();
-                } else {
+                    }
+                }
+                // partial overwrite, not exceed last page
+                /*
+                    origin: |---|---|---|---|---|
+                    write:     |xxxxxxxxxx|
+                */
+                else if last_page > end_page as i64 {
+                    Self::partial_write(
+                        &self,
+                        i,
+                        &pos,
+                        &mut buf,
+                        offset,
+                        len,
+                        start_page,
+                        end_page,
+                        io_size,
+                        &mut data_anchor,
+                        data,
+                        &mut checksum_vec,
+                        &mut idx_anchor,
+                        &new_poses,
+                    )
+                    .await
+                    .unwrap();
+                }
+                /*
+                    origin: |---|---|---|---|---|
+                    write:     |xxxxxxxxxxxxxxxxxxx|
+                */
+                else {
                     self.blob_engine
-                        .clone()
                         .write(
                             new_poses[idx_anchor].offset,
                             new_poses[idx_anchor].bid,
