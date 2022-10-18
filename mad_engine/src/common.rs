@@ -1,4 +1,8 @@
-use crate::utils::*;
+//! This module contains global metadata: MadEngine data structure
+//!
+//! Atomicity is not tested
+
+use crate::{utils::*, RocksdbEngine};
 use async_spdk::blob::BlobId as SBlobId;
 use rocksdb::DB;
 use serde::{Deserialize, Serialize};
@@ -52,7 +56,7 @@ impl ChunkMeta {
 }
 
 impl Chunk {
-    pub fn new(name: String, size: u64) -> Self {
+    pub fn new(name: String, _size: u64) -> Self {
         Self {
             name,
             meta: ChunkMeta::default(),
@@ -107,14 +111,13 @@ impl DeviceInfo {
     }
 }
 
-#[derive(Debug)]
 pub struct ThreadData {
     // allocated blobs in the thread
     pub(crate) tblobs: Vec<SBlobId>,
     // self owned free list, can 'steal' others' space
     pub(crate) tfree_list: HashMap<SBlobId, BitMap>,
     // channel: Option<IoChannel>,
-    pub(crate) db: Option<Arc<DB>>,
+    pub(crate) db: Option<Arc<RocksdbEngine>>,
     // bs: Option<Arc<Blobstore>>,
     // handle: Option<Arc<DeviceEngine>>,
 }

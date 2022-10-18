@@ -1,26 +1,39 @@
 // this is a test for basic create and remove
 // initialization as well
 
-use async_spdk::*;
+use async_spdk::{event::app_stop, *};
 use log::*;
-use mad_engine::*;
+use mad_engine::FileEngine;
+use tokio::time::Duration;
 
-fn main() {
+const PATH: &str = "data";
+
+#[tokio::main]
+async fn main() {
     env_logger::init();
-    event::AppOpts::new()
-        .name("test1")
-        .config_file(&std::env::args().nth(1).expect("expect config file"))
-        .block_on(test1_helper("Nvme0n1"))
-        .unwrap();
-}
-
-async fn test1_helper(name: &str) -> std::result::Result<(), EngineError> {
-    let handle = MadEngineHandle::new("data", name).await.unwrap();
+    let (mut handle, mut opts) = FileEngine::new(
+        PATH,
+        std::env::args().nth(1).expect("expect config file"),
+        "0x3",
+        "Nvme0n1",
+        "Nvme1n1",
+        1,
+        "test1",
+        4096,
+        1,
+        false,
+    )
+    .await
+    .unwrap();
+    info!("get handle success");
     handle.create("file1".to_string()).unwrap();
-    info!("create pass...");
+    info!("create file success");
     handle.remove("file1".to_string()).unwrap();
-    info!("remove pass...");
-    handle.unload().await.unwrap();
-    info!("unload succeed...");
-    Ok(())
+    info!("remove file success");
+    handle.unload_bs().await.unwrap();
+    info!("unload blobstore success");
+    drop(handle);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    opts.finish();
+    info!("close engine success");
 }

@@ -1,39 +1,40 @@
 // this is an integration test for mad_engine
 // basically an aggregation of test1-4
 
-use std::time::Duration;
-
 use async_spdk::*;
 use log::*;
 use mad_engine::*;
-
-fn main() {
-    env_logger::init();
-    event::AppOpts::new()
-        .name("test5")
-        .config_file(&std::env::args().nth(1).expect("no such config file"))
-        .block_on(test5_helper("Nvme0n1"))
-        .unwrap();
-}
+use tokio::time::Duration;
 
 const DATA_LEN2: usize = 512;
 const DATA_LEN3: usize = 5120;
 const DATA_LEN4: usize = 6144;
 
-async fn test5_helper(name: &str) -> std::result::Result<(), EngineError> {
-    let mut handle = MadEngineHandle::new("data", name).await.unwrap();
+const PATH: &str = "data";
 
-    // test1: basic create and remove test
+#[tokio::main]
+async fn main() {
+    env_logger::init();
+    let (mut handle, mut opts) = FileEngine::new(
+        PATH,
+        std::env::args().nth(1).expect("expect config file"),
+        "0x3",
+        "Nvme0n1",
+        "Nvme1n1",
+        1,
+        "test5",
+        4096,
+        1,
+        false,
+    )
+    .await
+    .unwrap();
+    info!("get handle success");
+
     handle.create("file1".to_string()).unwrap();
     handle.remove("file1".to_string()).unwrap();
-    // drop(handle);
-    info!("test1 pass...");
-    std::thread::sleep(Duration::from_secs(1));
+    info!("====== test1 pass...");
 
-    // test2: basic read and write test
-    // let mut handle = MadEngineHandle::new("data", name)
-    //     .await
-    //     .unwrap();
     handle.create("file2".to_string()).unwrap();
     let mut buf: Vec<u8> = vec![0u8; DATA_LEN2];
     for i in 0..DATA_LEN2 {
@@ -53,20 +54,14 @@ async fn test5_helper(name: &str) -> std::result::Result<(), EngineError> {
             error!("data mismatch on {}!", i);
         }
     }
-    handle.remove("file2".to_string()).unwrap();
-    // drop(handle);
-    info!("test2 pass...");
-    std::thread::sleep(Duration::from_secs(1));
+    handle.remove("file2".into()).unwrap();
+    info!("====== test2 pass...");
 
-    // test3: single read and write but cross bondary
-    // let mut handle = MadEngineHandle::new("data", name)
-    //     .await
-    //     .unwrap();
+    handle.create("file3".into()).unwrap();
     let mut buf: Vec<u8> = vec![0u8; DATA_LEN3];
     for i in 0..DATA_LEN3 {
         buf[i] = i as u8;
     }
-    handle.create("file3".to_string()).unwrap();
     handle
         .write("file3".to_string(), 0, buf.as_ref())
         .await
@@ -82,15 +77,9 @@ async fn test5_helper(name: &str) -> std::result::Result<(), EngineError> {
             error!("data mismatch on {}!", i);
         }
     }
-    handle.remove("file3".to_string()).unwrap();
-    // drop(handle);
-    info!("test3 pass...");
-    std::thread::sleep(Duration::from_secs(1));
+    handle.remove("file3".into()).unwrap();
+    info!("====== test3 pass...");
 
-    // test4: multiple read and write
-    // let mut handle = MadEngineHandle::new("data", name)
-    //     .await
-    //     .unwrap();
     handle.create("file4".to_string()).unwrap();
     let mut buf1 = vec![0u8; DATA_LEN4];
     for i in 0..DATA_LEN4 {
@@ -106,9 +95,6 @@ async fn test5_helper(name: &str) -> std::result::Result<(), EngineError> {
         .await
         .unwrap();
     for i in 4000..4200 {
-        // if i >= 4150 && i <= 4170{
-        //     info!("position {} = {}", i, buf2[i-4000]);
-        // }
         if buf1[i] != buf2[i - 4000] {
             error!("data mismatch on position: {}", i);
         }
@@ -133,7 +119,12 @@ async fn test5_helper(name: &str) -> std::result::Result<(), EngineError> {
         }
     }
     handle.remove("file4".to_owned()).unwrap();
-    info!("test4 pass...");
-    handle.unload().await.unwrap();
-    Ok(())
+    info!("====== test4 pass...");
+
+    handle.unload_bs().await.unwrap();
+    drop(handle);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    opts.finish();
+
+    info!("====== env close");
 }
