@@ -1,3 +1,7 @@
+//! This module includes some self-implemented components
+//!
+//! include: bitmap, hasher
+
 use crc::{Crc, CRC_32_ISO_HDLC};
 use serde::{Deserialize, Serialize};
 

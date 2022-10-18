@@ -1,3 +1,5 @@
+//! Future work: support different storage backend besides SPDK
+
 use crate::error::Result;
 use async_spdk::blob::{Blob, BlobId, Blobstore};
 use std::sync::Arc;

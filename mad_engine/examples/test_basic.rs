@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use log::*;
 use mad_engine::{BsBindOpts, EngineOpts};
 
@@ -17,7 +15,7 @@ async fn main() {
     info!("Set blobstores");
     opts.set_config_file(config);
     opts.set_name("Test Basic");
-    opts.start_spdk();
+    opts.start_spdk(false);
     opts.ready();
     info!("got ready");
 

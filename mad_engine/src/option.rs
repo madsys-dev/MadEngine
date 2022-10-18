@@ -38,6 +38,7 @@ pub struct EngineOpts {
     app_name: String,
     // Flag to indicate blobfs establish
     fsflag: Arc<Mutex<bool>>,
+    // Flag to indicate blobstore establish
     bsflag: Arc<Mutex<bool>>,
     // Blobfs pointer
     pub fs: Arc<Mutex<SpdkFilesystem>>,
@@ -87,30 +88,35 @@ impl Drop for EngineOpts {
 }
 
 impl EngineOpts {
+    /// set reactor mask to instruct which cores to start SPDK reactor
     pub fn set_reactor_mask(&mut self, mask: &str) {
         self.reactor_mask = mask.to_string();
     }
 
+    /// whether build blobfs or not
     pub fn set_blobfs(&mut self, blobfs_bdev: &str) {
         self.start_blobfs = true;
         self.blobfs_bdev = Some(blobfs_bdev.to_string());
     }
 
+    /// set which bdev and core to run blobstore
     pub fn set_blobstore(&mut self, blobstore_bdev_list: Vec<BsBindOpts>) {
         self.blobstore_bdev_list = Some(blobstore_bdev_list.clone());
         info!("Set bs success, bs: {:?}", self.blobstore_bdev_list);
     }
 
+    /// set app name (optional)
     pub fn set_name(&mut self, app_name: &str) {
         self.app_name = app_name.to_string();
     }
 
+    /// set configuration file
     pub fn set_config_file(&mut self, config: String) {
         self.config_file = config.clone();
     }
 
     // start blobfs and blobstore by given configuration
-    pub fn start_spdk(&mut self) {
+    pub fn start_spdk(&mut self, is_reload: bool) {
         let app_name = if self.app_name.len() == 0 {
             "None-name app".to_string()
         } else {
@@ -135,6 +141,7 @@ impl EngineOpts {
                 .config_file(config_file.as_str())
                 .reactor_mask(reactor_mask.as_str())
                 .block_on(Self::start_spdk_helper(
+                    is_reload,
                     fs,
                     fsflag,
                     bsflag,
@@ -151,6 +158,7 @@ impl EngineOpts {
     }
 
     async fn start_spdk_helper(
+        is_reload: bool,
         fs: Arc<Mutex<SpdkFilesystem>>,
         fsflag: Arc<Mutex<bool>>,
         bsflag: Arc<Mutex<bool>>,
@@ -178,14 +186,22 @@ impl EngineOpts {
         })?;
 
         // initialize blobfs
-        if start_blobfs {
+        if start_blobfs && !is_reload {
             let mut bdev = blob_bdev::BlobStoreBDev::create(blobfs_bdev.unwrap().as_str())?;
             let mut blobfs_opts = SpdkBlobfsOpts::init().await?;
             let blobfs = SpdkFilesystem::init(&mut bdev, &mut blobfs_opts).await?;
 
             *fs.lock().unwrap() = blobfs;
             *fsflag.lock().unwrap() = true;
-            info!("fs success");
+            info!("fs init success");
+        } else if start_blobfs && is_reload {
+            info!("before reload.....");
+            let mut bdev = blob_bdev::BlobStoreBDev::create(blobfs_bdev.unwrap().as_str())?;
+            let blobfs = SpdkFilesystem::load(&mut bdev).await?;
+
+            *fs.lock().unwrap() = blobfs;
+            *fsflag.lock().unwrap() = true;
+            info!("fs reload success");
         }
 
         // initialize blobstore on specific core
@@ -199,6 +215,7 @@ impl EngineOpts {
                     CString::new(opt.bdev_name).expect("fail to parse bdev name"),
                     bs_tmp.clone(),
                     n.clone(),
+                    is_reload,
                 ))) as *mut c_void,
             )
             .unwrap();
@@ -235,6 +252,7 @@ impl EngineOpts {
         *self.shutdown.lock().unwrap() = true;
     }
 
+    /// create a blob engine, for test
     pub fn create_be(&self) -> BlobEngine {
         let bs_lock = self.blobstores.lock().unwrap();
         let bs_list = self.blobstore_bdev_list.clone().unwrap();
@@ -250,12 +268,18 @@ impl EngineOpts {
 
 fn build_blobstore(arg: *mut c_void) {
     info!(">>>> build_blobstore is called");
-    let (bdev, bs, n) =
-        unsafe { *Box::from_raw(arg as *mut (CString, Arc<Mutex<Blobstore>>, Arc<Notify>)) };
+    let (bdev, bs, n, is_reload) =
+        unsafe { *Box::from_raw(arg as *mut (CString, Arc<Mutex<Blobstore>>, Arc<Notify>, bool)) };
     let mut bs_dev =
         blob_bdev::BlobStoreBDev::create(bdev.into_string().unwrap().as_str()).unwrap();
-    {
+    if !is_reload {
         blob::Blobstore::init_sync(
+            &mut bs_dev,
+            Box::into_raw(Box::new((bs.clone(), n.clone()))) as *mut c_void,
+        )
+        .unwrap();
+    } else if is_reload {
+        blob::Blobstore::load_sync(
             &mut bs_dev,
             Box::into_raw(Box::new((bs.clone(), n.clone()))) as *mut c_void,
         )

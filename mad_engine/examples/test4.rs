@@ -14,13 +14,14 @@ async fn main() {
     let (mut handle, mut opts) = FileEngine::new(
         PATH,
         std::env::args().nth(1).expect("expect config file"),
-        "0x11",
+        "0x3",
         "Nvme0n1",
         "Nvme1n1",
         1,
         "test4",
         4096,
         32,
+        false,
     )
     .await
     .unwrap();

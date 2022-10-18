@@ -1,3 +1,5 @@
+//! This module implemente basic read/write API
+
 use crate::common::*;
 use crate::db::*;
 use crate::error::{EngineError, Result};
@@ -28,7 +30,6 @@ pub struct FileEngine {
     blob_engine: Arc<BlobEngine>,
     mad_engine: Arc<Mutex<MadEngine>>,
     pool: ThreadPool,
-    // opts: EngineOpts,
 }
 
 impl Drop for FileEngine {
@@ -36,6 +37,7 @@ impl Drop for FileEngine {
 }
 
 impl FileEngine {
+    /// get a file engine handle
     pub async fn new(
         path: impl AsRef<Path>,
         config_file: String,
@@ -47,11 +49,12 @@ impl FileEngine {
         app_name: &str,
         cache_size_in_mb: u64,
         init_blob_size: u64,
+        is_reload: bool,
     ) -> Result<(Self, EngineOpts)> {
         // Set SPDK opts
         let mut opts = EngineOpts::default();
         opts.set_blobfs(blobfs_dev);
-        opts.set_reactor_mask("0x3");
+        opts.set_reactor_mask(reactor_mask);
         opts.set_blobstore(vec![BsBindOpts {
             bdev_name: bs_dev.to_string(),
             core: bs_core,
@@ -60,7 +63,7 @@ impl FileEngine {
         opts.set_name(app_name);
 
         // Start SPDK environment
-        opts.start_spdk();
+        opts.start_spdk(is_reload);
 
         // Wait for blobfs and blobstore establishing
         opts.ready();
@@ -79,64 +82,119 @@ impl FileEngine {
 
         let pool = ThreadPool::new(NUM_THREAD, NUM_THREAD, Duration::from_secs(1));
         let num_init = NUM_THREAD;
-        // TODO: finish cluster count API
-        let mad_engine = Arc::new(Mutex::new(MadEngine::new(256)));
-        for _ in 0..num_init {
-            let handle = be.clone();
-            let blob_id = handle.create_blob().await?;
-            let blob = handle.open_blob(blob_id).await?;
-            handle.resize_blob(blob, init_blob_size).await?;
-            handle.sync_blob(blob).await?;
-            handle.close_blob(blob).await?;
+        if !is_reload {
+            // TODO: finish cluster count API
+            let mad_engine = Arc::new(Mutex::new(MadEngine::new(256)));
+            for _ in 0..num_init {
+                let handle = be.clone();
+                let blob_id = handle.create_blob().await?;
+                let blob = handle.open_blob(blob_id).await?;
+                handle.resize_blob(blob, init_blob_size).await?;
+                handle.sync_blob(blob).await?;
+                handle.close_blob(blob).await?;
 
-            let db = db.clone();
-            let me = mad_engine.clone();
+                let db = db.clone();
+                let me = mad_engine.clone();
 
-            // do the initialization work for each thread
-            pool.spawn(async move {
-                TLS.with(move |f| {
-                    let mut br = f.borrow_mut();
-                    br.tblobs = vec![blob_id.clone()];
-                    br.tfree_list = HashMap::new();
-                    let bitmap = BitMap::new(BLOB_SIZE * CLUSTER_SIZE);
-                    br.tfree_list.insert(blob_id.clone(), bitmap.clone());
-                    let mut l = me.lock().unwrap();
-                    l.blobs.push(blob_id.clone());
-                    l.free_list
-                        .insert(blob_id.clone().to_string(), bitmap.clone());
-                    drop(l);
-                    br.db = Some(db);
+                // do the initialization work for each thread
+                pool.spawn(async move {
+                    TLS.with(move |f| {
+                        let mut br = f.borrow_mut();
+                        br.tblobs = vec![blob_id.clone()];
+                        br.tfree_list = HashMap::new();
+                        let bitmap = BitMap::new(BLOB_SIZE * CLUSTER_SIZE);
+                        br.tfree_list.insert(blob_id.clone(), bitmap.clone());
+                        let mut l = me.lock().unwrap();
+                        l.blobs.push(blob_id.clone());
+                        l.free_list
+                            .insert(blob_id.clone().to_string(), bitmap.clone());
+                        drop(l);
+                        br.db = Some(db);
+                    });
                 });
-            });
+            }
+            pool.join();
+            let magic = mad_engine.lock().unwrap();
+            let global = magic.clone();
+            drop(magic);
+
+            db.put(
+                Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
+                serde_json::to_string(&global).unwrap().as_bytes(),
+            )?;
+
+            Ok((
+                Self {
+                    db,
+                    blob_engine: be,
+                    mad_engine,
+                    pool,
+                },
+                opts,
+            ))
+        } else {
+            let global = db
+                .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())
+                .unwrap();
+            if global.is_none() {
+                return Err(EngineError::RestoreFail);
+            }
+            let global_meta: MadEngine =
+                serde_json::from_slice(&String::from_utf8(global.unwrap()).unwrap().as_bytes())
+                    .unwrap();
+            let mad_engine = Arc::new(Mutex::new(global_meta));
+            let num_blobs = {
+                let l = mad_engine.lock().unwrap();
+                l.blobs.len()
+            };
+            for i in 0..num_init {
+                let db = db.clone();
+                let me = mad_engine.clone();
+                let mut thread_blobids = vec![];
+                let mut blob2map = HashMap::new();
+                {
+                    let l = me.lock().unwrap();
+                    let mut id = i;
+                    while id < num_blobs {
+                        thread_blobids.push(l.blobs[id]);
+                        blob2map.insert(
+                            l.blobs[id],
+                            l.free_list.get(&l.blobs[id].to_string()).unwrap().clone(),
+                        );
+                        id += num_init;
+                    }
+                }
+                pool.spawn(async move {
+                    TLS.with(move |f| {
+                        let mut br = f.borrow_mut();
+                        br.tblobs = thread_blobids;
+                        br.tfree_list = blob2map;
+                        br.db = Some(db);
+                    });
+                });
+            }
+            pool.join();
+            Ok((
+                Self {
+                    db,
+                    blob_engine: be,
+                    mad_engine,
+                    pool,
+                },
+                opts,
+            ))
         }
-        pool.join();
-        let magic = mad_engine.lock().unwrap();
-        let global = magic.clone();
-        drop(magic);
-
-        db.put(
-            Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
-            // MAGIC.to_string(),
-            serde_json::to_string(&global).unwrap().as_bytes(),
-        )?;
-
-        Ok((
-            Self {
-                db,
-                blob_engine: be,
-                mad_engine,
-                pool,
-                // opts,
-            },
-            opts,
-        ))
     }
 
+    /// remove file
+    ///
+    /// TODO: there should be a backend thread to recycle blob
     pub fn remove(&self, name: String) -> Result<()> {
-        self.db.db.delete(name)?;
+        self.db.delete(name)?;
         Ok(())
     }
 
+    /// create file
     pub fn create(&self, name: String) -> Result<()> {
         let chunk_meta = ChunkMeta::default();
         self.db
@@ -144,6 +202,7 @@ impl FileEngine {
         Ok(())
     }
 
+    /// get a file state
     pub fn stat(&self, name: String) -> Result<StatMeta> {
         let chunk_meta = self.db.get(name)?;
         if chunk_meta.is_none() {
@@ -158,6 +217,7 @@ impl FileEngine {
         Ok(ret)
     }
 
+    /// write file
     pub async fn write(&mut self, name: String, offset: u64, data: &[u8]) -> Result<()> {
         let io_size = IO_SIZE;
         let len = data.len() as u64;
@@ -183,10 +243,6 @@ impl FileEngine {
         let end_page = (offset + len - 1) / io_size;
         // last page before this write, -1 if this is first write
         let mut last_page = size as i64 / io_size as i64;
-        // info!(
-        //     "WRITE: start page: {}\ncover_end_page: {}\nend_page: {}\nlast_page: {}",
-        //     start_page, cover_end_page, end_page, last_page
-        // );
 
         // first write
         if size == 0 {
@@ -365,8 +421,6 @@ impl FileEngine {
                             .await
                             .unwrap();
                         let buffer = buf.as_mut();
-                        // buffer[0..(offset + len - end_page * PAGE_SIZE) as usize]
-                        //     .copy_from_slice(&data[data_anchor..]);
                         buffer[0..(offset + len - end_page * io_size) as usize]
                             .copy_from_slice(&data[data_anchor..]);
                         checksum_vec[i + start_page as usize] =
@@ -558,16 +612,14 @@ impl FileEngine {
         Ok(())
     }
 
+    /// unload blobstore
     pub async fn unload_bs(&self) -> Result<()> {
         self.blob_engine.unload().await;
         Ok(())
     }
 
+    /// close thread pool
     pub fn close_engine(&mut self) -> Result<()> {
-        // drop(self.db);
-        // self.db.db.close_db();
-        // self.db.close_db();
-        // self.opts.finish();
         self.pool.to_owned().shutdown();
         Ok(())
     }

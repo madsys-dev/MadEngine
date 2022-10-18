@@ -1,4 +1,7 @@
-//! Transaction DB wrapper
+//! RocksdbEngine implementation
+//!
+//! This module is basically a TransactionDB wrapper
+//! in order to realize transaction write
 
 use crate::error::Result;
 use serde::{Deserialize, Serialize};
@@ -86,6 +89,7 @@ fn default_cf_options(
 }
 
 impl RocksdbEngine {
+    /// Create a RocksdbEngine based on given blobfs
     pub fn new(
         fs: Arc<Mutex<SpdkFilesystem>>,
         fs_core: u32,
@@ -144,6 +148,11 @@ impl RocksdbEngine {
     pub fn get<K: AsRef<[u8]>>(&self, key: K) -> Result<Option<Vec<u8>>> {
         let ret = self.db.get(key)?;
         Ok(ret)
+    }
+
+    pub fn delete<K: AsRef<[u8]>>(&self, key: K) -> Result<()> {
+        self.db.delete(key)?;
+        Ok(())
     }
 }
 

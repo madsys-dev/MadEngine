@@ -1,22 +1,33 @@
-//! This includes I/O operation enumeration
+//! This includes I/O operation based on blob
 
 use async_spdk::blob::{Blob, BlobId, Blobstore, IoChannel};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
 pub enum Op {
+    /// Get I/O size, unimplemented
     IoSize,
+    /// Get I/O channel, unimplemented
     Channel,
+    /// Write data to a blob
     Write,
+    /// Read data to a blob
     Read,
-    // Create Blob
+    /// Create blob
     Create,
+    /// Delete blob
     Delete,
+    /// Get free cluster count, unimplemented
     ClusterCount,
+    /// Open a blob
     Open,
+    /// Unload blobstore
     Unload,
+    /// Sync blob's metadata to disk
     Sync,
+    /// Resize blob's size
     Resize,
+    /// Close a blob
     Close,
 }
 
@@ -34,10 +45,7 @@ pub struct Msg<'a> {
 }
 
 impl<'a> Msg<'a> {
-    pub fn notify(&self) {
-        self.notify.as_ref().unwrap().notify_one();
-    }
-
+    /// close blob
     pub fn gen_close(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>, blob: Blob) -> Self {
         Self {
             op: Op::Close,
@@ -53,6 +61,7 @@ impl<'a> Msg<'a> {
         }
     }
 
+    /// unload blobstore
     pub fn gen_unload(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>) -> Self {
         Self {
             op: Op::Unload,
@@ -68,6 +77,7 @@ impl<'a> Msg<'a> {
         }
     }
 
+    /// write blob
     pub fn gen_write(
         notify: Arc<Notify>,
         bs: Arc<Mutex<Blobstore>>,
@@ -89,6 +99,7 @@ impl<'a> Msg<'a> {
         }
     }
 
+    /// read blob
     pub fn gen_read(
         notify: Arc<Notify>,
         bs: Arc<Mutex<Blobstore>>,
@@ -110,6 +121,7 @@ impl<'a> Msg<'a> {
         }
     }
 
+    /// create blob
     pub fn gen_create(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>) -> Self {
         Self {
             op: Op::Create,
@@ -125,6 +137,7 @@ impl<'a> Msg<'a> {
         }
     }
 
+    /// delete blob
     pub fn gen_delete(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>, blob_id: BlobId) -> Self {
         Self {
             op: Op::Delete,
@@ -140,6 +153,7 @@ impl<'a> Msg<'a> {
         }
     }
 
+    /// open blob
     pub fn gen_open(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>, bid: BlobId) -> Self {
         Self {
             op: Op::Open,
@@ -155,6 +169,7 @@ impl<'a> Msg<'a> {
         }
     }
 
+    /// sync blob
     pub fn gen_sync(notify: Arc<Notify>, bs: Arc<Mutex<Blobstore>>, blob: Blob) -> Self {
         Self {
             op: Op::Sync,
@@ -170,6 +185,7 @@ impl<'a> Msg<'a> {
         }
     }
 
+    /// resize blob
     pub fn gen_resize(
         notify: Arc<Notify>,
         bs: Arc<Mutex<Blobstore>>,

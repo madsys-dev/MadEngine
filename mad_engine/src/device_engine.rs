@@ -1,3 +1,5 @@
+//! Device Engine is depreciated now
+
 use crate::error::Result;
 use async_spdk::blob::{self, BlobId, Blobstore};
 use async_spdk::blob_bdev::{self};

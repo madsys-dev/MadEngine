@@ -1,3 +1,7 @@
+//! This module contains global metadata: MadEngine data structure
+//!
+//! Atomicity is not tested
+
 use crate::{utils::*, RocksdbEngine};
 use async_spdk::blob::BlobId as SBlobId;
 use rocksdb::DB;

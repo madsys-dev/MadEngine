@@ -13,18 +13,19 @@ const DATA_LEN4: usize = 6144;
 const PATH: &str = "data";
 
 #[tokio::main]
-async fn main(){
+async fn main() {
     env_logger::init();
     let (mut handle, mut opts) = FileEngine::new(
         PATH,
         std::env::args().nth(1).expect("expect config file"),
-        "0x11",
+        "0x3",
         "Nvme0n1",
         "Nvme1n1",
         1,
         "test5",
         4096,
         1,
+        false,
     )
     .await
     .unwrap();
@@ -126,8 +127,4 @@ async fn main(){
     opts.finish();
 
     info!("====== env close");
-
 }
-
-
-
