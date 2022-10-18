@@ -8,6 +8,14 @@ const DATA_LEN: usize = 6144;
 const PATH: &str = "data";
 use tokio::time::Duration;
 
+/*
+    |0-----------3800-----4000----4099----4199----------6143| <6144 in total>
+    |<-------------------------write----------------------->|
+                           |<-----read----->|
+                  |<-----write----->|
+                           |<-----read----->|
+*/
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
