@@ -11,6 +11,12 @@ const DATA_LEN: usize = 512;
 
 const PATH: &str = "data";
 
+/*
+    |------------------| <512B in total>
+    |<------write----->|
+    |<------read------>|
+*/
+
 #[tokio::main]
 async fn main() {
     env_logger::init();

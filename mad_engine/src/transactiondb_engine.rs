@@ -1,6 +1,6 @@
-//! RocksdbEngine implementation
+//! Rocksdb TransactionDB implementation
 //!
-//! This module is basically a TransactionDB wrapper
+//! This module is like a TransactionDB wrapper
 //! in order to realize transaction write
 
 use crate::error::Result;
@@ -27,7 +27,9 @@ pub struct RocksdbEngine {
 }
 
 impl Drop for RocksdbEngine {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        
+    }
 }
 
 unsafe impl Send for RocksdbEngine {}
