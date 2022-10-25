@@ -256,13 +256,12 @@ impl EngineOpts {
     pub fn create_be(&self) -> BlobEngine {
         let bs_lock = self.blobstores.lock().unwrap();
         let bs_list = self.blobstore_bdev_list.clone().unwrap();
-        BlobEngine {
-            name: bs_list[0].bdev_name.clone(),
-            core: bs_list[0].core,
-            io_size: 512,
-            channel: None,
-            bs: bs_lock[0].clone(),
-        }
+        return BlobEngine::new(
+            &bs_list[0].bdev_name.clone(),
+            bs_list[0].core,
+            512,
+            bs_lock[0].clone(),
+        );
     }
 }
 
