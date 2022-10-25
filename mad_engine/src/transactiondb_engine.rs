@@ -11,13 +11,13 @@ use std::sync::{Arc, Mutex};
 
 use async_spdk::blobfs::SpdkFilesystem;
 use rocksdb::{
-    ColumnFamily, ColumnFamilyDescriptor, DBRawIteratorWithThreadMode, MergeOperands,
-    SingleThreaded, Transaction, TransactionDB, TransactionDBOptions, TransactionOptions,
-    WriteBatchWithTransaction, WriteOptions,
+    ColumnFamily, ColumnFamilyDescriptor, MergeOperands, SingleThreaded, TransactionDB,
+    TransactionDBOptions, TransactionOptions, WriteOptions,
 };
 
 const JNL_CF_NAME: &str = "journal_cf";
 
+#[allow(unused)]
 pub struct RocksdbEngine {
     pub db: TransactionDB,
     jnl_cf: &'static ColumnFamily,
@@ -27,9 +27,7 @@ pub struct RocksdbEngine {
 }
 
 impl Drop for RocksdbEngine {
-    fn drop(&mut self) {
-        
-    }
+    fn drop(&mut self) {}
 }
 
 unsafe impl Send for RocksdbEngine {}
@@ -100,8 +98,8 @@ impl RocksdbEngine {
         bdev: &str,
         cache_size_in_mb: u64,
     ) -> Result<Self> {
-        let mut write_opts = WriteOptions::default();
-        let mut opts = rocksdb_options(
+        let write_opts = WriteOptions::default();
+        let opts = rocksdb_options(
             fs.clone(),
             fs_core,
             data_path.as_ref().to_str().clone().unwrap(),

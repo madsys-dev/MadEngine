@@ -8,13 +8,7 @@ use crate::utils::*;
 use crate::BlobEngine;
 use crate::BsBindOpts;
 use crate::EngineOpts;
-use crate::RocksdbEngine;
 use async_spdk::env::DmaBuf;
-use async_spdk::event;
-use futures::TryFutureExt;
-use log::*;
-use rocksdb::TransactionDB;
-use rocksdb::{DBWithThreadMode, Options, SingleThreaded, DB};
 use rusty_pool::ThreadPool;
 use std::time::Duration;
 use std::{
@@ -401,7 +395,7 @@ impl FileEngine {
         if global.is_none() {
             return Err(EngineError::GlobalGetFail);
         }
-        let mut global_meta: MadEngine =
+        let global_meta: MadEngine =
             serde_json::from_slice(&String::from_utf8(global.unwrap()).unwrap().as_bytes())
                 .unwrap();
         let poses = if size == 0 {
@@ -423,7 +417,6 @@ impl FileEngine {
         // get all new positions to write new data
         // recycle old positions
         let poses_copy = poses.clone();
-        let db_copy = self.db.clone();
         let (new_poses, new_blob2map) =
             Self::allocate_and_recycle_poses(&self, poses_copy, global_meta, total_page_num);
 

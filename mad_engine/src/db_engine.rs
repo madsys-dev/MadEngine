@@ -1,18 +1,16 @@
 //! RocksdbEngine implementation
 
 use crate::error::Result;
-use rocksdb::{DB, Options};
-use serde::{Deserialize, Serialize};
+use rocksdb::{Options, DB};
 use std::ffi::c_void;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use async_spdk::blobfs::SpdkFilesystem;
 
-pub struct DbEngine{
+pub struct DbEngine {
     pub db: DB,
     pub db_opts: Options,
-
 }
 
 unsafe impl Send for DbEngine {}
@@ -53,7 +51,7 @@ impl DbEngine {
         bdev: &str,
         cache_size_in_mb: u64,
     ) -> Result<Self> {
-        let mut opts = rocksdb_options(
+        let opts = rocksdb_options(
             fs.clone(),
             fs_core,
             data_path.as_ref().to_str().clone().unwrap(),
@@ -62,10 +60,7 @@ impl DbEngine {
             cache_size_in_mb,
         );
         let db = DB::open(&opts, data_path)?;
-        let db_engine = DbEngine{
-            db,
-            db_opts: opts,
-        };
+        let db_engine = DbEngine { db, db_opts: opts };
         Ok(db_engine)
     }
 
@@ -88,4 +83,3 @@ impl DbEngine {
         Ok(())
     }
 }
-

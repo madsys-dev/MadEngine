@@ -5,7 +5,6 @@
 use log::*;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use async_spdk::blob::{Blob, BlobId, Blobstore, IoChannel};
 use async_spdk::event::SpdkEvent;
@@ -41,24 +40,27 @@ impl std::fmt::Display for BlobEngine {
 
 impl BlobEngine {
     /// Get corresponding bdev name
-    pub fn get_name(&self) -> Result<String> {
+    #[allow(unused)]
+    pub(crate) fn get_name(&self) -> Result<String> {
         Ok(self.name.clone())
     }
 
     /// Get binding core number
-    pub fn get_core_id(&self) -> Result<u32> {
+    #[allow(unused)]
+    pub(crate) fn get_core_id(&self) -> Result<u32> {
         Ok(self.core)
     }
 
     /// Get io_size, for now it is hard-coded
-    pub fn get_io_size(&self) -> Result<u64> {
+    #[allow(unused)]
+    pub(crate) fn get_io_size(&self) -> Result<u64> {
         Ok(self.io_size)
     }
 }
 
 impl BlobEngine {
     /// New a blob engine
-    pub fn new(name: &str, core: u32, io_size: u64, bs: Arc<Mutex<Blobstore>>) -> Self {
+    pub(crate) fn new(name: &str, core: u32, io_size: u64, bs: Arc<Mutex<Blobstore>>) -> Self {
         let ret = BlobEngine {
             name: name.to_string(),
             core,
@@ -72,7 +74,7 @@ impl BlobEngine {
     /// Unload BlobStore
     ///
     /// All blobs must be closed
-    pub async fn unload(&self) {
+    pub(crate) async fn unload(&self) {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_unload(n.clone(), self.bs.clone());
         let e = SpdkEvent::alloc(
@@ -87,7 +89,7 @@ impl BlobEngine {
     }
 
     /// Write data to given blob
-    pub async fn write(&self, offset: u64, bid: BlobId, buf: &[u8]) -> Result<()> {
+    pub(crate) async fn write(&self, offset: u64, bid: BlobId, buf: &[u8]) -> Result<()> {
         let blob = Self::open_blob(&self, bid).await?;
         let n = Arc::new(Notify::new());
         let m = Msg::gen_write(n.clone(), self.bs.clone(), offset, blob, buf);
@@ -107,7 +109,7 @@ impl BlobEngine {
     /// Read data from a given blob
     ///
     /// TODO: this should return read size
-    pub async fn read(&self, offset: u64, bid: BlobId, buf: &mut [u8]) -> Result<()> {
+    pub(crate) async fn read(&self, offset: u64, bid: BlobId, buf: &mut [u8]) -> Result<()> {
         let blob = Self::open_blob(&self, bid).await?;
         let n = Arc::new(Notify::new());
         let m = Msg::gen_read(n.clone(), self.bs.clone(), offset, blob, buf);
@@ -125,7 +127,8 @@ impl BlobEngine {
     }
 
     /// Delete a blob
-    pub async fn delete_blob(&self, blob_id: BlobId) -> Result<()> {
+    #[allow(unused)]
+    pub(crate) async fn delete_blob(&self, blob_id: BlobId) -> Result<()> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_delete(n.clone(), self.bs.clone(), blob_id);
         let e = SpdkEvent::alloc(
@@ -141,7 +144,7 @@ impl BlobEngine {
     }
 
     /// Create empty blob
-    pub async fn create_blob(&self) -> Result<BlobId> {
+    pub(crate) async fn create_blob(&self) -> Result<BlobId> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_create(n.clone(), self.bs.clone());
         let bid = Arc::new(Mutex::new(BlobId::default()));
@@ -159,7 +162,7 @@ impl BlobEngine {
     }
 
     /// Open a blob, get blob handle
-    pub async fn open_blob(&self, bid: BlobId) -> Result<Blob> {
+    pub(crate) async fn open_blob(&self, bid: BlobId) -> Result<Blob> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_open(n.clone(), self.bs.clone(), bid);
         let blob = Arc::new(Mutex::new(Blob::default()));
@@ -179,7 +182,7 @@ impl BlobEngine {
     /// Resize a blob
     ///
     /// Blob creation only creates null blob
-    pub async fn resize_blob(&self, blob: Blob, size: u64) -> Result<()> {
+    pub(crate) async fn resize_blob(&self, blob: Blob, size: u64) -> Result<()> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_resize(n.clone(), self.bs.clone(), blob, size);
         let e = SpdkEvent::alloc(
@@ -195,7 +198,7 @@ impl BlobEngine {
     }
 
     /// Blob metadata sync
-    pub async fn sync_blob(&self, blob: Blob) -> Result<()> {
+    pub(crate) async fn sync_blob(&self, blob: Blob) -> Result<()> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_sync(n.clone(), self.bs.clone(), blob);
         let e = SpdkEvent::alloc(
@@ -213,7 +216,7 @@ impl BlobEngine {
     /// Close a blob
     ///
     /// All blobs must be closed before unload blobstore
-    pub async fn close_blob(&self, blob: Blob) -> Result<()> {
+    pub(crate) async fn close_blob(&self, blob: Blob) -> Result<()> {
         let n = Arc::new(Notify::new());
         let m = Msg::gen_close(n.clone(), self.bs.clone(), blob);
         let e = SpdkEvent::alloc(

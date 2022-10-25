@@ -36,17 +36,15 @@ async fn main() {
     info!("second get handle success");
 
     let buf3 = vec![13u8; 300];
-    match handle
-        .write("file6".to_owned(), 3800, buf3.as_ref())
-        .await{
-            Ok(_) => {
-                info!("second write success");
-            },
-            Err(e) => {
-                error!("write fail: {}", e); 
-            },
-        };
-    
+    match handle.write("file6".to_owned(), 3800, buf3.as_ref()).await {
+        Ok(_) => {
+            info!("second write success");
+        }
+        Err(e) => {
+            error!("write fail: {}", e);
+        }
+    };
+
     handle
         .read("file6".to_owned(), 4000, buf2.as_mut())
         .await

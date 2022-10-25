@@ -1,10 +1,5 @@
 //! Future work: support different storage backend besides SPDK
 
-use crate::error::Result;
-use async_spdk::blob::{Blob, BlobId, Blobstore};
-use std::sync::Arc;
-use std::sync::Mutex;
-
 // pub trait BlobEngineOp {
 //     /// New a BlobEngine
 //     pub fn new(name: &str, core: u32, io_size: u64, bs: Arc<Mutex<Blobstore>>) -> Self;

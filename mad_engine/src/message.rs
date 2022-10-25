@@ -33,7 +33,9 @@ pub enum Op {
 
 pub struct Msg<'a> {
     pub op: Op,
+    #[allow(unused)]
     channel: Option<IoChannel>,
+    #[allow(unused)]
     notify: Option<Arc<Notify>>,
     pub bs: Option<Arc<Mutex<Blobstore>>>,
     pub offset: Option<u64>,
