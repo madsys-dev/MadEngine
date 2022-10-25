@@ -420,6 +420,7 @@ impl FileEngine {
         let (new_poses, new_blob2map) =
             Self::allocate_and_recycle_poses(&self, poses_copy, global_meta, total_page_num);
 
+        // *self.mad_engine.lock().unwrap().free_list = new_blob2map;
         let mut l = self.mad_engine.lock().unwrap();
         l.free_list = new_blob2map;
         drop(l);

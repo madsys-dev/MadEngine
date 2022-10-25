@@ -60,6 +60,9 @@ pub struct MadEngine {
     pub(crate) device: DeviceInfo,
 }
 
+unsafe impl Send for MadEngine {}
+unsafe impl Sync for MadEngine {}
+
 impl MadEngine {
     pub fn new(total_cluster: u64) -> Self {
         Self {
