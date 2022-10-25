@@ -8,7 +8,7 @@ authors = ["Juguang Yan <coolyanjg@163.com>"]
 
 [dependencies]
 # async-spdk = {path = "../async_spdk"}
-async-spdk = {git = "https://github.com/madsys-dev/async-spdk", branch = "dev"}
+async-spdk = {git = "https://github.com/madsys-dev/async-spdk", rev = "dcde501"}
 bincode = "1.3"
 crc = "3.0.0"
 futures = "0.3"
