@@ -157,7 +157,7 @@ impl BlobEngine {
         e.call().unwrap();
         // info!("Wait for create notify");
         n.notified().await;
-        let b = *bid.lock().unwrap();
+        let b = { *bid.lock().unwrap() };
         Ok(b)
     }
 
@@ -175,7 +175,7 @@ impl BlobEngine {
         e.call().unwrap();
         // info!("Wait for open notify");
         n.notified().await;
-        let b = *blob.lock().unwrap();
+        let b = { *blob.lock().unwrap() };
         Ok(b)
     }
 

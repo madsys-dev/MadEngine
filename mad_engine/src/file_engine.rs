@@ -108,19 +108,21 @@ impl FileEngine {
                         br.tfree_list = HashMap::new();
                         let bitmap = BitMap::new(BLOB_SIZE * CLUSTER_SIZE);
                         br.tfree_list.insert(blob_id.clone(), bitmap.clone());
-                        let mut l = me.lock().unwrap();
-                        l.blobs.push(blob_id.clone());
-                        l.free_list
-                            .insert(blob_id.clone().to_string(), bitmap.clone());
-                        drop(l);
+                        {
+                            let mut l = me.lock().unwrap();
+                            l.blobs.push(blob_id.clone());
+                            l.free_list
+                                .insert(blob_id.clone().to_string(), bitmap.clone());
+                        }
                         br.db = Some(db);
                     });
                 });
             }
             pool.join();
-            let magic = mad_engine.lock().unwrap();
-            let global = magic.clone();
-            drop(magic);
+            let global = {
+                let magic = mad_engine.lock().unwrap();
+                magic.clone()
+            };
 
             db.put(
                 Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
@@ -157,13 +159,18 @@ impl FileEngine {
                 let mut thread_blobids = vec![];
                 let mut blob2map = HashMap::new();
                 {
-                    let l = me.lock().unwrap();
+                    // let l = me.lock().unwrap();
                     let mut id = i;
                     while id < num_blobs {
-                        thread_blobids.push(l.blobs[id]);
+                        thread_blobids.push(me.lock().unwrap().blobs[id]);
                         blob2map.insert(
-                            l.blobs[id],
-                            l.free_list.get(&l.blobs[id].to_string()).unwrap().clone(),
+                            me.lock().unwrap().blobs[id],
+                            me.lock()
+                                .unwrap()
+                                .free_list
+                                .get(&me.lock().unwrap().blobs[id].to_string())
+                                .unwrap()
+                                .clone(),
                         );
                         id += num_init;
                     }
@@ -421,9 +428,10 @@ impl FileEngine {
             Self::allocate_and_recycle_poses(&self, poses_copy, global_meta, total_page_num);
 
         // *self.mad_engine.lock().unwrap().free_list = new_blob2map;
-        let mut l = self.mad_engine.lock().unwrap();
-        l.free_list = new_blob2map;
-        drop(l);
+        {
+            let mut l = self.mad_engine.lock().unwrap();
+            l.free_list = new_blob2map;
+        }
         let mut idx_anchor = 0;
         let mut data_anchor = 0;
         for (i, pos) in poses.iter().enumerate() {
