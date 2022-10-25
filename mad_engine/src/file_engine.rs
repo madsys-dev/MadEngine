@@ -1,7 +1,8 @@
 //! This module implemente basic read/write API
 
 use crate::common::*;
-use crate::db::*;
+// use crate::transactiondb_engine::*;
+use crate::db_engine::*;
 use crate::error::{EngineError, Result};
 use crate::utils::*;
 use crate::BlobEngine;
@@ -26,7 +27,8 @@ use std::{
 const IO_SIZE: u64 = 512;
 
 pub struct FileEngine {
-    db: Arc<RocksdbEngine>,
+    // db: Arc<RocksdbEngine>,
+    db: Arc<DbEngine>,
     blob_engine: Arc<BlobEngine>,
     mad_engine: Arc<Mutex<MadEngine>>,
     pool: ThreadPool,
@@ -69,7 +71,15 @@ impl FileEngine {
         opts.ready();
 
         // Build TransactionDB
-        let db = Arc::new(RocksdbEngine::new(
+        // let db = Arc::new(RocksdbEngine::new(
+        //     opts.fs.clone(),
+        //     0,
+        //     path,
+        //     &config_file,
+        //     blobfs_dev,
+        //     cache_size_in_mb,
+        // )?);
+        let db = Arc::new(DbEngine::new(
             opts.fs.clone(),
             0,
             path,

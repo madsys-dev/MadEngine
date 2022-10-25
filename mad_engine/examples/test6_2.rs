@@ -36,11 +36,17 @@ async fn main() {
     info!("second get handle success");
 
     let buf3 = vec![13u8; 300];
-    handle
+    match handle
         .write("file6".to_owned(), 3800, buf3.as_ref())
-        .await
-        .unwrap();
-    info!("second write success");
+        .await{
+            Ok(_) => {
+                info!("second write success");
+            },
+            Err(e) => {
+                error!("write fail: {}", e); 
+            },
+        };
+    
     handle
         .read("file6".to_owned(), 4000, buf2.as_mut())
         .await
@@ -57,7 +63,7 @@ async fn main() {
         }
     }
     info!("second data match");
-    handle.remove("file6".to_owned()).unwrap();
+    // handle.remove("file6".to_owned()).unwrap();
 
     handle.unload_bs().await.unwrap();
     info!("unload blobstore success");

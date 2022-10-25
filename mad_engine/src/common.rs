@@ -2,7 +2,7 @@
 //!
 //! Atomicity is not tested
 
-use crate::{utils::*, RocksdbEngine};
+use crate::{utils::*, RocksdbEngine, DbEngine};
 use async_spdk::blob::BlobId as SBlobId;
 use rocksdb::DB;
 use serde::{Deserialize, Serialize};
@@ -117,7 +117,8 @@ pub struct ThreadData {
     // self owned free list, can 'steal' others' space
     pub(crate) tfree_list: HashMap<SBlobId, BitMap>,
     // channel: Option<IoChannel>,
-    pub(crate) db: Option<Arc<RocksdbEngine>>,
+    // pub(crate) db: Option<Arc<RocksdbEngine>>,
+    pub(crate) db: Option<Arc<DbEngine>>,
     // bs: Option<Arc<Blobstore>>,
     // handle: Option<Arc<DeviceEngine>>,
 }
