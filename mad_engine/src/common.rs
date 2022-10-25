@@ -1,15 +1,11 @@
-use crate::utils::*;
+//! This module contains global metadata: MadEngine data structure
+//!
+//! Atomicity is not tested
+
+use crate::{utils::*, DbEngine};
 use async_spdk::blob::BlobId as SBlobId;
-use rocksdb::DB;
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, collections::HashMap, sync::Arc};
-
-#[derive(Debug)]
-pub struct Chunk {
-    // this should be oid + chunkId intuitively
-    name: String,
-    meta: ChunkMeta,
-}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChunkMeta {
@@ -24,7 +20,9 @@ pub struct ChunkMeta {
 
 // structure used for stat
 pub struct StatMeta {
+    #[allow(unused)]
     pub(crate) size: u64,
+    #[allow(unused)]
     pub(crate) csum_type: String,
 }
 
@@ -48,15 +46,6 @@ impl Default for ChunkMeta {
 impl ChunkMeta {
     pub fn get_size(&self) -> u64 {
         self.size
-    }
-}
-
-impl Chunk {
-    pub fn new(name: String, size: u64) -> Self {
-        Self {
-            name,
-            meta: ChunkMeta::default(),
-        }
     }
 }
 
@@ -107,14 +96,14 @@ impl DeviceInfo {
     }
 }
 
-#[derive(Debug)]
 pub struct ThreadData {
     // allocated blobs in the thread
     pub(crate) tblobs: Vec<SBlobId>,
     // self owned free list, can 'steal' others' space
     pub(crate) tfree_list: HashMap<SBlobId, BitMap>,
     // channel: Option<IoChannel>,
-    pub(crate) db: Option<Arc<DB>>,
+    // pub(crate) db: Option<Arc<RocksdbEngine>>,
+    pub(crate) db: Option<Arc<DbEngine>>,
     // bs: Option<Arc<Blobstore>>,
     // handle: Option<Arc<DeviceEngine>>,
 }

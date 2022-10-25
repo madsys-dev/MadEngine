@@ -1,3 +1,7 @@
+//! This module includes some self-implemented components
+//!
+//! include: bitmap, hasher
+
 use crc::{Crc, CRC_32_ISO_HDLC};
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +16,7 @@ pub const BLOB_SIZE: u64 = 64;
 /// cluster size in pages
 pub const CLUSTER_SIZE_PAGES: u64 = 256;
 /// cluster size in IO_UNIT
-pub const CLUSTER_SIZE: u64 = 256*8;
+pub const CLUSTER_SIZE: u64 = 256 * 8;
 
 pub const MAGIC: &str = "MadEngine";
 

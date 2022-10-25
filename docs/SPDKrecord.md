@@ -24,3 +24,11 @@ This is record file for RocksDB + SPDK integration.
     - `$ROCKSDB_DIR/db_bench --benchmarks="readrandomwriterandom,stats" --num=10000000 --db=/mnt/fuse --wal_dir=/mnt/fuse`, this is self-designed RocksDB db_bench test. This will print the performance result if succeed.
 
 - a blog [从SPDK Blobstore到 Blob FS](https://blog.csdn.net/weixin_37097605/article/details/124977125?spm=1001.2101.3001.6650.1&utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7ECTRLIST%7Edefault-1-124977125-blog-119154739.pc_relevant_default&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7ECTRLIST%7Edefault-1-124977125-blog-119154739.pc_relevant_default&utm_relevant_index=2) introduce an RPC style to create and mount blobfs
+
+## SSD environment
+- Close `secure boot` in your machine. This might cause problem like `pcieXXXX`
+- Use DmaBuf(DPDK tool?). This might cause problems like `io error`
+- A detailed [introduction](https://its201.com/article/cyq6239075/106732499) to SPDK
+- Follow SPDK [documentation](https://spdk.io/doc/blobfs.html) to configure rocksDB, and following is an example command
+    - `sudo ./db_bench --benchmarks="readrandomwriterandom,stats" --num=10000000 --duration=20 --db=../test0810 --wal_dir=../test0810 --spdk=../rocksdb.json --spdk_bdev=Nvme0n1 --spdk_cache_size=4096`
+    - remember to set `USE_RTTI=1` when make rocksdb

@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "blobfs.h": "c",
+        "blob_bdev.h": "c",
+        "string.h": "c"
+    },
+    "cmake.configureOnOpen": false
+}

@@ -1,22 +1,39 @@
 // this is a test for multiple read and write
 
-use async_spdk::*;
+use async_spdk::{event::app_stop, *};
 use log::*;
 use mad_engine::*;
 
 const DATA_LEN: usize = 6144;
+const PATH: &str = "data";
+use tokio::time::Duration;
 
-fn main() {
+/*
+    |0-----------3800-----4000----4099----4199----------6143| <6144 in total>
+    |<-------------------------write----------------------->|
+                           |<-----read----->|
+                  |<-----write----->|
+                           |<-----read----->|
+*/
+
+#[tokio::main]
+async fn main() {
     env_logger::init();
-    event::AppOpts::new()
-        .name("test4")
-        .config_file(&std::env::args().nth(1).expect("no such config file"))
-        .block_on(test4_helper("Nvme0n1"))
-        .unwrap();
-}
-
-async fn test4_helper(name: &str) -> std::result::Result<(), EngineError> {
-    let mut handle = MadEngineHandle::new("data", name).await.unwrap();
+    let (mut handle, mut opts) = FileEngine::new(
+        PATH,
+        std::env::args().nth(1).expect("expect config file"),
+        "0x3",
+        "Nvme0n1",
+        "Nvme1n1",
+        1,
+        "test4",
+        4096,
+        32,
+        false,
+    )
+    .await
+    .unwrap();
+    info!("get handle success");
     handle.create("file4".to_string()).unwrap();
     info!("create file4 pass...");
     let mut buf1 = vec![0u8; DATA_LEN];
@@ -67,7 +84,10 @@ async fn test4_helper(name: &str) -> std::result::Result<(), EngineError> {
     }
     info!("second data match...");
     handle.remove("file4".to_owned()).unwrap();
-    handle.unload().await.unwrap();
-    info!("test4 pass...");
-    Ok(())
+    handle.unload_bs().await.unwrap();
+    info!("unload blobstore success");
+    drop(handle);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    opts.finish();
+    info!("close engine success");
 }
