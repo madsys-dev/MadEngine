@@ -356,7 +356,7 @@ impl FileEngine {
     }
 
     /// write file
-    pub async fn write(&mut self, name: String, offset: u64, data: &[u8]) -> Result<()> {
+    pub async fn write(&self, name: String, offset: u64, data: &[u8]) -> Result<()> {
         let io_size = IO_SIZE;
         let len = data.len() as u64;
 
