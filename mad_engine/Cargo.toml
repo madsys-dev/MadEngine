@@ -7,14 +7,11 @@ authors = ["Juguang Yan <coolyanjg@163.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# async-spdk = {path = "../async_spdk"}
-async-spdk = {git = "https://github.com/madsys-dev/async-spdk", rev = "dcde501"}
+async-spdk = {git = "https://github.com/madsys-dev/async-spdk", rev = "c266710"}
 bincode = "1.3"
 crc = "3.0.0"
 futures = "0.3"
-# rocksdb = "0.18.0"
-rocksdb = {git = "https://github.com/coolyjg/rust-rocksdb-spdk", branch="spdk-integration"}
-# rocksdb = {path = "../rust-rocksdb"}
+rocksdb = {git = "https://github.com/coolyjg/rust-rocksdb-spdk", rev = "d87da1d"}
 rayon = "1.5.3"
 thread_local = "1.1.4"
 serde = "1.0"

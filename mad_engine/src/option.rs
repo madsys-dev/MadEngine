@@ -284,8 +284,5 @@ fn build_blobstore(arg: *mut c_void) {
         )
         .unwrap();
     }
-    if bs.lock().unwrap().ptr.is_null() {
-        error!("error is accepted");
-    }
     info!("blob store initilize success");
 }
