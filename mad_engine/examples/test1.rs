@@ -1,7 +1,7 @@
 // this is a test for basic create and remove
 // initialization as well
 
-use async_spdk::{event::app_stop, *};
+
 use log::*;
 use mad_engine::FileEngine;
 use tokio::time::Duration;
@@ -11,7 +11,7 @@ const PATH: &str = "data";
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    let (mut handle, mut opts) = FileEngine::new(
+    let (handle, mut opts) = FileEngine::new(
         PATH,
         std::env::args().nth(1).expect("expect config file"),
         "0x3",

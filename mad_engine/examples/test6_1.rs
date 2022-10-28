@@ -10,7 +10,7 @@ const PATH: &str = "data";
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    let (mut handle, mut opts) = FileEngine::new(
+    let (handle, mut opts) = FileEngine::new(
         PATH,
         std::env::args().nth(1).expect("expect config file"),
         "0x3",

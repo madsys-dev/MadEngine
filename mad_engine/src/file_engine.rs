@@ -104,15 +104,15 @@ impl FileEngine {
                 pool.spawn(async move {
                     TLS.with(move |f| {
                         let mut br = f.borrow_mut();
-                        br.tblobs = vec![blob_id.clone()];
+                        br.tblobs = vec![blob_id];
                         br.tfree_list = HashMap::new();
                         let bitmap = BitMap::new(BLOB_SIZE * CLUSTER_SIZE);
-                        br.tfree_list.insert(blob_id.clone(), bitmap.clone());
+                        br.tfree_list.insert(blob_id, bitmap.clone());
                         {
                             let mut l = me.lock().unwrap();
-                            l.blobs.push(blob_id.clone());
+                            l.blobs.push(blob_id);
                             l.free_list
-                                .insert(blob_id.clone().to_string(), bitmap.clone());
+                                .insert(blob_id.clone().to_string(), bitmap);
                         }
                         br.db = Some(db);
                     });
@@ -146,7 +146,7 @@ impl FileEngine {
                 return Err(EngineError::RestoreFail);
             }
             let global_meta: MadEngine =
-                serde_json::from_slice(&String::from_utf8(global.unwrap()).unwrap().as_bytes())
+                serde_json::from_slice(String::from_utf8(global.unwrap()).unwrap().as_bytes())
                     .unwrap();
             let mad_engine = Arc::new(Mutex::new(global_meta));
             let num_blobs = {
@@ -220,10 +220,10 @@ impl FileEngine {
             return Err(EngineError::MetaNotExist);
         }
         let chunk_meta: ChunkMeta =
-            serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())?;
+            serde_json::from_slice(String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())?;
         let ret = StatMeta {
             size: chunk_meta.size,
-            csum_type: chunk_meta.csum_type.clone(),
+            csum_type: chunk_meta.csum_type,
         };
         Ok(ret)
     }
@@ -248,7 +248,7 @@ impl FileEngine {
                     while cnt > 0 {
                         let tblobs = br.tblobs.clone();
                         for bid in tblobs.iter() {
-                            let bm = br.tfree_list.get_mut(&bid);
+                            let bm = br.tfree_list.get_mut(bid);
                             if bm.is_none() {
                                 continue;
                             }
@@ -256,7 +256,7 @@ impl FileEngine {
                             let idx = bm.find().unwrap();
                             // TODO: here should check full or not
                             ret.push(PagePos {
-                                bid: bid.clone(),
+                                bid: *bid,
                                 offset: idx,
                             });
                             bm.set(idx);
@@ -279,14 +279,14 @@ impl FileEngine {
                         let tblobs = br.tblobs.clone();
                         for bid in tblobs.iter() {
                             if *bid == pos.bid {
-                                let bm = br.tfree_list.get_mut(&bid);
+                                let bm = br.tfree_list.get_mut(bid);
                                 bm.unwrap().clear(pos.offset);
                                 flag = true;
                                 break;
                             }
                         }
                         // not in the old tblobs, but maybe in the newblobs
-                        if flag == false {
+                        if !flag {
                             for bid in new_blobs.iter() {
                                 if *bid == pos.bid {
                                     flag = true;
@@ -294,7 +294,7 @@ impl FileEngine {
                                 }
                             }
                         }
-                        if flag == false {
+                        if !flag {
                             new_blobs.push(pos.bid);
                             let mut bm = BitMap::new_set_ones(BLOB_SIZE * CLUSTER_SIZE);
                             bm.clear(pos.offset);
@@ -356,7 +356,7 @@ impl FileEngine {
             )
             .await
             .unwrap();
-        *idx_anchor = *idx_anchor + 1;
+        *idx_anchor += 1;
         *data_anchor = data.len();
         Ok(())
     }
@@ -372,7 +372,7 @@ impl FileEngine {
             return Err(EngineError::MetaNotExist);
         }
         let mut chunk_meta: ChunkMeta =
-            serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
+            serde_json::from_slice(String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
                 .unwrap();
         let size = chunk_meta.get_size();
         if offset > size {
@@ -402,20 +402,19 @@ impl FileEngine {
             return Err(EngineError::GlobalGetFail);
         }
         let global_meta: MadEngine =
-            serde_json::from_slice(&String::from_utf8(global.unwrap()).unwrap().as_bytes())
+            serde_json::from_slice(String::from_utf8(global.unwrap()).unwrap().as_bytes())
                 .unwrap();
         let poses = if size == 0 {
             vec![]
         } else {
             (start_page..=cover_end_page)
                 .map(|p| {
-                    chunk_meta
+                    *chunk_meta
                         .location
                         .clone()
                         .unwrap()
                         .get(&p)
                         .unwrap()
-                        .clone()
                 })
                 .collect::<Vec<_>>()
         };
@@ -424,7 +423,7 @@ impl FileEngine {
         // recycle old positions
         let poses_copy = poses.clone();
         let (new_poses, new_blob2map) =
-            Self::allocate_and_recycle_poses(&self, poses_copy, global_meta, total_page_num);
+            Self::allocate_and_recycle_poses(self, poses_copy, global_meta, total_page_num);
 
         // *self.mad_engine.lock().unwrap().free_list = new_blob2map;
         {
@@ -489,9 +488,9 @@ impl FileEngine {
                     */
                     else {
                         Self::partial_write(
-                            &self,
+                            self,
                             i,
-                            &pos,
+                            pos,
                             &mut buf,
                             offset,
                             len,
@@ -515,9 +514,9 @@ impl FileEngine {
                 */
                 else if last_page > end_page as i64 {
                     Self::partial_write(
-                        &self,
+                        self,
                         i,
-                        &pos,
+                        pos,
                         &mut buf,
                         offset,
                         len,
@@ -606,7 +605,7 @@ impl FileEngine {
         }
         chunk_meta.size = size.max(offset + data.len() as u64);
         let mut locations = match chunk_meta.location {
-            Some(l) => l.clone(),
+            Some(l) => l,
             None => HashMap::new(),
         };
         let mut idx = 0;
@@ -640,7 +639,7 @@ impl FileEngine {
             return Err(EngineError::MetaNotExist);
         }
         let chunk_meta: ChunkMeta =
-            serde_json::from_slice(&String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())?;
+            serde_json::from_slice(String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())?;
         let size = chunk_meta.size;
         if offset >= size || offset + len > size {
             return Err(EngineError::ReadOutRange);
@@ -648,13 +647,12 @@ impl FileEngine {
 
         let poses = (start_page..=end_page)
             .map(|p| {
-                chunk_meta
+                *chunk_meta
                     .location
                     .clone()
                     .unwrap()
                     .get(&p)
                     .unwrap()
-                    .clone()
             })
             .collect::<Vec<_>>();
         let checksum_vec = chunk_meta.csum_data.clone();
@@ -681,7 +679,7 @@ impl FileEngine {
                     .copy_from_slice(&buffer[((offset - start_page * io_size) as usize)..]);
                 anchor += ((start_page + 1) * io_size - offset) as usize;
             } else {
-                data[anchor..(anchor + io_size as usize)].copy_from_slice(&buf.as_ref());
+                data[anchor..(anchor + io_size as usize)].copy_from_slice(buf.as_ref());
                 anchor += io_size as usize;
             }
         }

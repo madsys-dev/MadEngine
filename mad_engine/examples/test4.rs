@@ -1,6 +1,6 @@
 // this is a test for multiple read and write
 
-use async_spdk::{event::app_stop, *};
+
 use log::*;
 use mad_engine::*;
 
@@ -19,7 +19,7 @@ use tokio::time::Duration;
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    let (mut handle, mut opts) = FileEngine::new(
+    let (handle, mut opts) = FileEngine::new(
         PATH,
         std::env::args().nth(1).expect("expect config file"),
         "0x3",

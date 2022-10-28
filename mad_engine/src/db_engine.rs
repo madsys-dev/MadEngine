@@ -52,9 +52,9 @@ impl DbEngine {
         cache_size_in_mb: u64,
     ) -> Result<Self> {
         let opts = rocksdb_options(
-            fs.clone(),
+            fs,
             fs_core,
-            data_path.as_ref().to_str().clone().unwrap(),
+            data_path.as_ref().to_str().unwrap(),
             config,
             bdev,
             cache_size_in_mb,
