@@ -275,7 +275,6 @@ impl FileEngine {
                     for pos in poses_copy {
                         let e = new_blob2map.get_mut(&pos.bid.to_string()).unwrap();
                         e.clear(pos.offset);
-                        drop(e);
                         let mut flag = false;
                         let tblobs = br.tblobs.clone();
                         for bid in tblobs.iter() {

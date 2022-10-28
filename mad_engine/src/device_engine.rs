@@ -26,11 +26,7 @@ impl DeviceEngine {
     pub async fn new(name: &str, is_reload: bool) -> Result<Self> {
         let bs = DeviceEngine::open_bs(name, is_reload).await?;
         let size = bs.io_unit_size();
-        info!(
-            "OPEN BS: \n\tio_unit_size: {}B\n\tname: {:?}",
-            size,
-            name.clone()
-        );
+        info!("OPEN BS: \n\tio_unit_size: {}B\n\tname: {:?}", size, name);
         let ret = DeviceEngine {
             bs,
             name: String::from(name),
