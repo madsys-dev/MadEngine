@@ -1,6 +1,5 @@
 //! RocksdbEngine implementation
 
-use rocksdb_spdk as rocksdb;
 use crate::error::Result;
 use rocksdb::{Options, DB};
 use std::ffi::c_void;

@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::ffi::c_void;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use rocksdb_spdk as rocksdb;
 
 use async_spdk::blobfs::SpdkFilesystem;
 use rocksdb::{

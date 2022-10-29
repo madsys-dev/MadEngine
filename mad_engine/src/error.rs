@@ -1,7 +1,6 @@
 use async_spdk::SpdkError;
 // use serde_json::Error;
 use thiserror::Error;
-use rocksdb_spdk as rocksdb;
 
 #[derive(Error, Debug)]
 pub enum EngineError {
