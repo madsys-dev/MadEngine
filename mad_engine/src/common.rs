@@ -150,4 +150,16 @@ impl FsInfo {
             cluster_free,
         }
     }
+
+    pub fn get_size(&self) -> u64 {
+        self.cluster_size
+    }
+
+    pub fn get_total(&self) -> u64 {
+        self.cluster_total
+    }
+
+    pub fn get_free(&self) -> u64 {
+        self.cluster_free
+    }
 }
