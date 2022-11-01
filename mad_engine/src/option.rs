@@ -272,17 +272,11 @@ fn build_blobstore(arg: *mut c_void) {
     let mut bs_dev =
         blob_bdev::BlobStoreBDev::create(bdev.into_string().unwrap().as_str()).unwrap();
     if !is_reload {
-        blob::Blobstore::init_sync(
-            &mut bs_dev,
-            Box::into_raw(Box::new((bs, n))) as *mut c_void,
-        )
-        .unwrap();
+        blob::Blobstore::init_sync(&mut bs_dev, Box::into_raw(Box::new((bs, n))) as *mut c_void)
+            .unwrap();
     } else if is_reload {
-        blob::Blobstore::load_sync(
-            &mut bs_dev,
-            Box::into_raw(Box::new((bs, n))) as *mut c_void,
-        )
-        .unwrap();
+        blob::Blobstore::load_sync(&mut bs_dev, Box::into_raw(Box::new((bs, n))) as *mut c_void)
+            .unwrap();
     }
     info!("blob store initilize success");
 }

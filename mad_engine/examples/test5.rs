@@ -16,8 +16,8 @@ async fn main() {
     env_logger::init();
     let (handle, mut opts) = FileEngine::new(
         PATH,
-        // std::env::args().nth(1).expect("expect config file"),
-        "config_file.json".to_string(),
+        std::env::args().nth(1).expect("expect config file"),
+        // "config_file.json".to_string(),
         "0x3",
         "Nvme0n1",
         "Nvme1n1",
@@ -118,6 +118,33 @@ async fn main() {
             error!("data mismatch on position: {}", i);
         }
     }
+
+    handle.resize("file4".to_string(), 4150).await.unwrap();
+    handle.resize("file4".to_string(), 5000).await.unwrap();
+
+    handle
+        .read("file4".to_owned(), 4000, buf2.as_mut())
+        .await
+        .unwrap();
+
+    for i in 4000..4100 {
+        if buf2[i - 4000] != 13 {
+            error!("data mismatch on position: {}", i);
+        }
+    }
+
+    for i in 4100..4150 {
+        if buf2[i - 4000] != buf1[i] {
+            error!("data mismatch on position: {}", i);
+        }
+    }
+
+    for i in 4150..4200 {
+        if buf2[i - 4000] != 0 {
+            error!("data mismatch on position: {}", i);
+        }
+    }
+
     handle.remove("file4".to_owned()).unwrap();
     info!("====== test4 pass...");
 

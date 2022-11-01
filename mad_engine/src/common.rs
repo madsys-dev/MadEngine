@@ -20,10 +20,15 @@ pub struct ChunkMeta {
 
 // structure used for stat
 pub struct StatMeta {
-    #[allow(unused)]
     pub(crate) size: u64,
     #[allow(unused)]
     pub(crate) csum_type: String,
+}
+
+impl StatMeta {
+    pub fn get_size(&self) -> u64 {
+        self.size
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -58,17 +63,20 @@ pub struct MadEngine {
     pub(crate) blobs: Vec<SBlobId>,
     // information about lower device
     pub(crate) device: DeviceInfo,
+    // thread local blob size
+    pub(crate) blob_size: u64,
 }
 
 unsafe impl Send for MadEngine {}
 unsafe impl Sync for MadEngine {}
 
 impl MadEngine {
-    pub fn new(total_cluster: u64) -> Self {
+    pub fn new(total_cluster: u64, init_blob_size: u64) -> Self {
         Self {
             free_list: HashMap::new(),
             blobs: Vec::new(),
             device: DeviceInfo::new(total_cluster),
+            blob_size: init_blob_size,
         }
     }
 
@@ -126,4 +134,20 @@ impl Default for ThreadData {
 
 thread_local! {
     pub static TLS: RefCell<ThreadData> = RefCell::new(ThreadData::default());
+}
+
+pub struct FsInfo {
+    cluster_size: u64,
+    cluster_total: u64,
+    cluster_free: u64,
+}
+
+impl FsInfo {
+    pub fn set(cluster_size: u64, cluster_total: u64, cluster_free: u64) -> Self {
+        Self {
+            cluster_size,
+            cluster_total,
+            cluster_free,
+        }
+    }
 }

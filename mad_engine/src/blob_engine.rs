@@ -61,7 +61,6 @@ impl BlobEngine {
 impl BlobEngine {
     /// New a blob engine
     pub(crate) fn new(name: &str, core: u32, io_size: u64, bs: Arc<Mutex<Blobstore>>) -> Self {
-        
         BlobEngine {
             name: name.to_string(),
             core,
@@ -251,10 +250,7 @@ impl BlobEngine {
             .unwrap()
             .lock()
             .unwrap()
-            .open_blob_sync(
-                bid,
-                Box::into_raw(Box::new((blob, n))) as *mut c_void,
-            )
+            .open_blob_sync(bid, Box::into_raw(Box::new((blob, n))) as *mut c_void)
             .unwrap();
     }
 

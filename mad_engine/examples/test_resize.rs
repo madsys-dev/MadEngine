@@ -1,11 +1,8 @@
-// this is a test for basic create and remove
-// initialization as well
-
 use log::*;
-use mad_engine::FileEngine;
-use tokio::time::Duration;
+use mad_engine::*;
 
 const PATH: &str = "data";
+use tokio::time::Duration;
 
 #[tokio::main]
 async fn main() {
@@ -17,7 +14,7 @@ async fn main() {
         "Nvme0n1",
         "Nvme1n1",
         1,
-        "test1",
+        "test_resize",
         4096,
         1,
         false,
@@ -27,6 +24,22 @@ async fn main() {
     info!("get handle success");
     handle.create("file1".to_string()).unwrap();
     info!("create file success");
+
+    let size1 = handle.stat("file1".to_string()).unwrap().get_size();
+    info!("size1 = {}", size1);
+
+    handle.resize("file1".to_string(), 6000).await.unwrap();
+    info!("first resize success");
+
+    let size2 = handle.stat("file1".to_string()).unwrap().get_size();
+    info!("size2 = {}", size2);
+
+    handle.resize("file1".to_string(), 3000).await.unwrap();
+    info!("second resize success");
+
+    let size3 = handle.stat("file1".to_string()).unwrap().get_size();
+    info!("size3 = {}", size3);
+
     handle.remove("file1".to_string()).unwrap();
     info!("remove file success");
     handle.unload_bs().await.unwrap();

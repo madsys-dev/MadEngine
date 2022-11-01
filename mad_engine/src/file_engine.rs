@@ -88,7 +88,7 @@ impl FileEngine {
         let num_init = NUM_THREAD;
         if !is_reload {
             // TODO: finish cluster count API
-            let mad_engine = Arc::new(Mutex::new(MadEngine::new(256)));
+            let mad_engine = Arc::new(Mutex::new(MadEngine::new(256, init_blob_size)));
             for _ in 0..num_init {
                 let handle = be.clone();
                 let blob_id = handle.create_blob().await?;
@@ -111,8 +111,7 @@ impl FileEngine {
                         {
                             let mut l = me.lock().unwrap();
                             l.blobs.push(blob_id);
-                            l.free_list
-                                .insert(blob_id.clone().to_string(), bitmap);
+                            l.free_list.insert(blob_id.clone().to_string(), bitmap);
                         }
                         br.db = Some(db);
                     });
@@ -402,20 +401,12 @@ impl FileEngine {
             return Err(EngineError::GlobalGetFail);
         }
         let global_meta: MadEngine =
-            serde_json::from_slice(String::from_utf8(global.unwrap()).unwrap().as_bytes())
-                .unwrap();
+            serde_json::from_slice(String::from_utf8(global.unwrap()).unwrap().as_bytes()).unwrap();
         let poses = if size == 0 {
             vec![]
         } else {
             (start_page..=cover_end_page)
-                .map(|p| {
-                    *chunk_meta
-                        .location
-                        .clone()
-                        .unwrap()
-                        .get(&p)
-                        .unwrap()
-                })
+                .map(|p| *chunk_meta.location.clone().unwrap().get(&p).unwrap())
                 .collect::<Vec<_>>()
         };
 
@@ -646,14 +637,7 @@ impl FileEngine {
         }
 
         let poses = (start_page..=end_page)
-            .map(|p| {
-                *chunk_meta
-                    .location
-                    .clone()
-                    .unwrap()
-                    .get(&p)
-                    .unwrap()
-            })
+            .map(|p| *chunk_meta.location.clone().unwrap().get(&p).unwrap())
             .collect::<Vec<_>>();
         let checksum_vec = chunk_meta.csum_data.clone();
         let mut buf = DmaBuf::alloc((io_size) as usize, 0x1000);
@@ -695,6 +679,69 @@ impl FileEngine {
     /// close thread pool
     pub fn close_engine(&mut self) -> Result<()> {
         self.pool.to_owned().shutdown();
+        Ok(())
+    }
+
+    /// get engine info
+    ///
+    /// todo:
+    pub fn info(&self) -> Result<FsInfo> {
+        let size = self.mad_engine.lock().unwrap().device.cluster_size;
+        let total = self.mad_engine.lock().unwrap().device.total_cluster;
+        let free = total - self.mad_engine.lock().unwrap().blob_size * NUM_THREAD as u64;
+        Ok(FsInfo::set(size, total, free))
+    }
+
+    /// resize a file
+    pub async fn resize(&self, name: String, len: u64) -> Result<()> {
+        let mut chunk_meta = self.db.get(name.clone())?;
+        let io_size = IO_SIZE;
+        if chunk_meta.is_none() {
+            self.create(name.clone())?;
+            chunk_meta = self.db.get(name.clone())?;
+        }
+        let mut chunk_meta: ChunkMeta =
+            serde_json::from_slice(String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())?;
+        let size = chunk_meta.size;
+        if len == size {
+            return Ok(());
+        } else if len > size {
+            let data = vec![0u8; (len - size) as usize];
+            self.write(name.clone(), size, data.as_ref()).await?;
+        } else {
+            if len % io_size == 0 {
+                chunk_meta.size = len;
+                self.db.put(
+                    name.clone(),
+                    serde_json::to_string(&chunk_meta).unwrap().as_bytes(),
+                )?;
+                return Ok(());
+            }
+            chunk_meta.size = len;
+            let mut last_page = len as i64 / io_size as i64;
+            let data = vec![0u8; (io_size - (len - last_page as u64 * io_size)) as usize];
+            let mut buf = DmaBuf::alloc((io_size) as usize, 0x1000);
+            let pos = chunk_meta
+                .location
+                .clone()
+                .unwrap()
+                .get(&(last_page as u64))
+                .unwrap()
+                .clone();
+            self.blob_engine
+                .clone()
+                .read(pos.offset, pos.bid, buf.as_mut())
+                .await
+                .unwrap();
+            let buffer = buf.as_mut();
+            buffer[(len - last_page as u64 * io_size) as usize..].copy_from_slice(&data[..]);
+            chunk_meta.csum_data[last_page as usize] = Hasher::new().checksum(buffer.as_ref());
+            self.blob_engine.write(pos.offset, pos.bid, buffer).await?;
+            self.db.put(
+                name.clone(),
+                serde_json::to_string(&chunk_meta).unwrap().as_bytes(),
+            )?;
+        }
         Ok(())
     }
 }

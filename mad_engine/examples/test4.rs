@@ -1,6 +1,5 @@
 // this is a test for multiple read and write
 
-
 use log::*;
 use mad_engine::*;
 
@@ -83,6 +82,35 @@ async fn main() {
         }
     }
     info!("second data match...");
+
+    handle.resize("file4".to_string(), 4150).await.unwrap();
+    handle.resize("file4".to_string(), 5000).await.unwrap();
+    info!("two resize success");
+
+    handle
+        .read("file4".to_owned(), 4000, buf2.as_mut())
+        .await
+        .unwrap();
+
+    for i in 4000..4100 {
+        if buf2[i - 4000] != 13 {
+            error!("data mismatch on position: {}", i);
+        }
+    }
+
+    for i in 4100..4150 {
+        if buf2[i - 4000] != buf1[i] {
+            error!("data mismatch on position: {}", i);
+        }
+    }
+
+    for i in 4150..4200 {
+        if buf2[i - 4000] != 0 {
+            error!("data mismatch on position: {}", i);
+        }
+    }
+    info!("third read success");
+
     handle.remove("file4".to_owned()).unwrap();
     handle.unload_bs().await.unwrap();
     info!("unload blobstore success");

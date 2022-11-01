@@ -1,6 +1,5 @@
 // this is a test for cross-boundary read and write
 
-
 use log::*;
 use mad_engine::*;
 use tokio::time::Duration;
