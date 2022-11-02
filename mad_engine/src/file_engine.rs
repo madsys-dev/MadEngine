@@ -106,7 +106,7 @@ impl FileEngine {
                         let mut br = f.borrow_mut();
                         br.tblobs = vec![blob_id];
                         br.tfree_list = HashMap::new();
-                        let bitmap = BitMap::new(BLOB_SIZE * CLUSTER_SIZE);
+                        let bitmap = BitMap::new(init_blob_size * CLUSTER_SIZE);
                         br.tfree_list.insert(blob_id, bitmap.clone());
                         {
                             let mut l = me.lock().unwrap();
