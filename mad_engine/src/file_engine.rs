@@ -26,6 +26,7 @@ pub struct FileEngine {
     blob_engine: Arc<BlobEngine>,
     mad_engine: Arc<Mutex<MadEngine>>,
     pool: ThreadPool,
+    pub(crate) init_blob_size: u64,
 }
 
 impl Drop for FileEngine {
@@ -134,6 +135,7 @@ impl FileEngine {
                     blob_engine: be,
                     mad_engine,
                     pool,
+                    init_blob_size,
                 },
                 opts,
             ))
@@ -190,6 +192,7 @@ impl FileEngine {
                     blob_engine: be,
                     mad_engine,
                     pool,
+                    init_blob_size,
                 },
                 opts,
             ))
@@ -200,6 +203,88 @@ impl FileEngine {
     ///
     /// TODO: there should be a backend thread to recycle blob
     pub fn remove(&self, name: String) -> Result<()> {
+        let global = self
+            .db
+            .get(Hasher::new().checksum(MAGIC.as_bytes()).to_string())?;
+        if global.is_none() {
+            return Err(EngineError::GlobalGetFail);
+        }
+        let mut global_meta: MadEngine =
+            serde_json::from_slice(String::from_utf8(global.unwrap()).unwrap().as_bytes()).unwrap();
+        let chunk_meta = self.db.get(&name).unwrap();
+        if chunk_meta.is_none() {
+            return Ok(());
+        }
+        let mut chunk_meta: ChunkMeta =
+            serde_json::from_slice(String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
+                .unwrap();
+        let mut old_pages = vec![];
+        if chunk_meta.location.is_some() {
+            let loc = chunk_meta.location.clone().unwrap();
+            for (_, v) in loc {
+                old_pages.push(v.clone());
+            }
+        }
+        let init_blob_size = self.init_blob_size;
+        let db_copy = self.db.clone();
+        let new_blob2map = self
+            .pool
+            .complete(async move {
+                let mut new_blob2map = global_meta.free_list.clone();
+                TLS.with(|f| {
+                    let mut br = f.borrow_mut();
+                    let mut new_blobs = vec![];
+                    for pos in old_pages {
+                        let e = new_blob2map.get_mut(&pos.bid.to_string()).unwrap();
+                        e.clear(pos.offset);
+                        let mut flag = false;
+                        let tblobs = br.tblobs.clone();
+                        for bid in tblobs.iter() {
+                            if *bid == pos.bid {
+                                let bm = br.tfree_list.get_mut(bid);
+                                bm.unwrap().clear(pos.offset);
+                                flag = true;
+                                break;
+                            }
+                        }
+                        if !flag {
+                            for bid in new_blobs.iter() {
+                                if *bid == pos.bid {
+                                    flag = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if !flag {
+                            new_blobs.push(pos.bid);
+                            let mut bm = BitMap::new_set_ones(init_blob_size * CLUSTER_SIZE);
+                            bm.clear(pos.offset);
+                            br.tfree_list.insert(pos.bid, bm);
+                        } else {
+                            let bm = br.tfree_list.get_mut(&pos.bid).unwrap();
+                            bm.clear(pos.offset);
+                        }
+                    }
+                    for new_blob in new_blobs {
+                        br.tblobs.push(new_blob);
+                    }
+                    global_meta.free_list = new_blob2map.clone();
+                    db_copy
+                        .put(
+                            Hasher::new().checksum(MAGIC.as_bytes()).to_string(),
+                            serde_json::to_string(&global_meta.clone())
+                                .unwrap()
+                                .as_bytes(),
+                        )
+                        .unwrap();
+                    new_blob2map
+                })
+            })
+            .await_complete();
+        {
+            let mut l = self.mad_engine.lock().unwrap();
+            l.free_list = new_blob2map;
+        }
         self.db.delete(name)?;
         Ok(())
     }
@@ -236,6 +321,7 @@ impl FileEngine {
         total_page_num: u64,
     ) -> (Vec<PagePos>, HashMap<String, BitMap>) {
         let db_copy = self.db.clone();
+        let init_blob_size = self.init_blob_size;
         let (new_poses, new_blob2map) = self
             .pool
             .complete(async move {
@@ -252,7 +338,11 @@ impl FileEngine {
                                 continue;
                             }
                             let bm = bm.unwrap();
-                            let idx = bm.find().unwrap();
+                            let idx = bm.find();
+                            if idx.is_none() {
+                                continue;
+                            }
+                            let idx = idx.unwrap();
                             // TODO: here should check full or not
                             ret.push(PagePos {
                                 bid: *bid,
@@ -295,7 +385,7 @@ impl FileEngine {
                         }
                         if !flag {
                             new_blobs.push(pos.bid);
-                            let mut bm = BitMap::new_set_ones(BLOB_SIZE * CLUSTER_SIZE);
+                            let mut bm = BitMap::new_set_ones(init_blob_size * CLUSTER_SIZE);
                             bm.clear(pos.offset);
                             br.tfree_list.insert(pos.bid, bm);
                         } else {
