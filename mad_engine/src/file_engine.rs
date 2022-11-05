@@ -215,7 +215,7 @@ impl FileEngine {
         if chunk_meta.is_none() {
             return Ok(());
         }
-        let mut chunk_meta: ChunkMeta =
+        let chunk_meta: ChunkMeta =
             serde_json::from_slice(String::from_utf8(chunk_meta.unwrap()).unwrap().as_bytes())
                 .unwrap();
         let mut old_pages = vec![];
@@ -808,7 +808,7 @@ impl FileEngine {
                 return Ok(());
             }
             chunk_meta.size = len;
-            let mut last_page = len as i64 / io_size as i64;
+            let last_page = len as i64 / io_size as i64;
             let data = vec![0u8; (io_size - (len - last_page as u64 * io_size)) as usize];
             let mut buf = DmaBuf::alloc((io_size) as usize, 0x1000);
             let pos = chunk_meta
