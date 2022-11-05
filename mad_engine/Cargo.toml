@@ -11,7 +11,7 @@ async-spdk = {git = "https://github.com/madsys-dev/async-spdk", rev = "23bd1db"}
 bincode = "1.3"
 crc = "3.0.0"
 futures = "0.3"
-rocksdb = {git = "https://github.com/coolyjg/rust-rocksdb-spdk", rev = "6e4a183", features = ["spdk"]}
+rocksdb = {git = "https://github.com/coolyjg/rust-rocksdb-spdk", rev = "c8bc6e0", features = ["spdk"]}
 rayon = "1.5.3"
 thread_local = "1.1.4"
 serde = "1.0"
