@@ -102,15 +102,15 @@ impl RocksdbEngine {
         let opts = rocksdb_options(
             fs.clone(),
             fs_core,
-            data_path.as_ref().to_str().clone().unwrap(),
+            data_path.as_ref().to_str().unwrap(),
             config,
             bdev,
             cache_size_in_mb,
         );
         let cf_opts = default_cf_options(
-            fs.clone(),
+            fs,
             fs_core,
-            data_path.as_ref().to_str().clone().unwrap(),
+            data_path.as_ref().to_str().unwrap(),
             config,
             bdev,
             cache_size_in_mb,

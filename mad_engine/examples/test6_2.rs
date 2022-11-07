@@ -19,7 +19,7 @@ async fn main() {
     info!("=============restore=============");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
-    let (mut handle, mut opts) = FileEngine::new(
+    let (handle, mut opts) = FileEngine::new(
         PATH,
         std::env::args().nth(1).expect("expect config file"),
         "0x3",

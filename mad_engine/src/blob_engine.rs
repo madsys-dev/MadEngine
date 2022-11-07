@@ -61,14 +61,13 @@ impl BlobEngine {
 impl BlobEngine {
     /// New a blob engine
     pub(crate) fn new(name: &str, core: u32, io_size: u64, bs: Arc<Mutex<Blobstore>>) -> Self {
-        let ret = BlobEngine {
+        BlobEngine {
             name: name.to_string(),
             core,
             io_size,
             channel: None,
-            bs: bs.clone(),
-        };
-        ret
+            bs,
+        }
     }
 
     /// Unload BlobStore
@@ -90,7 +89,7 @@ impl BlobEngine {
 
     /// Write data to given blob
     pub(crate) async fn write(&self, offset: u64, bid: BlobId, buf: &[u8]) -> Result<()> {
-        let blob = Self::open_blob(&self, bid).await?;
+        let blob = Self::open_blob(self, bid).await?;
         let n = Arc::new(Notify::new());
         let m = Msg::gen_write(n.clone(), self.bs.clone(), offset, blob, buf);
         let e = SpdkEvent::alloc(
@@ -102,7 +101,7 @@ impl BlobEngine {
         e.call().unwrap();
         // info!("Wait for write notify");
         n.notified().await;
-        Self::close_blob(&self, blob).await?;
+        Self::close_blob(self, blob).await?;
         Ok(())
     }
 
@@ -110,7 +109,7 @@ impl BlobEngine {
     ///
     /// TODO: this should return read size
     pub(crate) async fn read(&self, offset: u64, bid: BlobId, buf: &mut [u8]) -> Result<()> {
-        let blob = Self::open_blob(&self, bid).await?;
+        let blob = Self::open_blob(self, bid).await?;
         let n = Arc::new(Notify::new());
         let m = Msg::gen_read(n.clone(), self.bs.clone(), offset, blob, buf);
         let e = SpdkEvent::alloc(
@@ -122,7 +121,7 @@ impl BlobEngine {
         e.call().unwrap();
         // info!("Wait for read notify");
         n.notified().await;
-        Self::close_blob(&self, blob).await?;
+        Self::close_blob(self, blob).await?;
         Ok(())
     }
 
@@ -157,7 +156,7 @@ impl BlobEngine {
         e.call().unwrap();
         // info!("Wait for create notify");
         n.notified().await;
-        let b = *bid.lock().unwrap();
+        let b = { *bid.lock().unwrap() };
         Ok(b)
     }
 
@@ -175,7 +174,7 @@ impl BlobEngine {
         e.call().unwrap();
         // info!("Wait for open notify");
         n.notified().await;
-        let b = *blob.lock().unwrap();
+        let b = { *blob.lock().unwrap() };
         Ok(b)
     }
 
@@ -238,7 +237,7 @@ impl BlobEngine {
             .unwrap()
             .lock()
             .unwrap()
-            .create_blob_sync(Box::into_raw(Box::new((bid.clone(), n.clone()))) as *mut c_void)
+            .create_blob_sync(Box::into_raw(Box::new((bid, n))) as *mut c_void)
             .unwrap();
         info!("Create Blob");
     }
@@ -251,10 +250,7 @@ impl BlobEngine {
             .unwrap()
             .lock()
             .unwrap()
-            .open_blob_sync(
-                bid,
-                Box::into_raw(Box::new((blob.clone(), n.clone()))) as *mut c_void,
-            )
+            .open_blob_sync(bid, Box::into_raw(Box::new((blob, n))) as *mut c_void)
             .unwrap();
     }
 
@@ -278,8 +274,8 @@ impl BlobEngine {
                     .write_sync(
                         &channel,
                         m.offset.unwrap(),
-                        m.write_buf.clone().unwrap(),
-                        Box::into_raw(Box::new(n.clone())) as *mut c_void,
+                        m.write_buf.unwrap(),
+                        Box::into_raw(Box::new(n)) as *mut c_void,
                     )
                     .unwrap();
                 info!("Write Blob");
@@ -300,7 +296,7 @@ impl BlobEngine {
                         &channel,
                         m.offset.unwrap(),
                         m.read_buf.as_mut().unwrap(),
-                        Box::into_raw(Box::new(n.clone())) as *mut c_void,
+                        Box::into_raw(Box::new(n)) as *mut c_void,
                     )
                     .unwrap();
                 info!("Read Blob");
@@ -314,7 +310,7 @@ impl BlobEngine {
                     .unwrap()
                     .lock()
                     .unwrap()
-                    .delete_blob_sync(bid, Box::into_raw(Box::new(n.clone())) as *mut c_void)
+                    .delete_blob_sync(bid, Box::into_raw(Box::new(n)) as *mut c_void)
                     .unwrap();
                 info!("Delete Blob");
             }
@@ -324,7 +320,7 @@ impl BlobEngine {
                     .unwrap()
                     .lock()
                     .unwrap()
-                    .unload_sync(Box::into_raw(Box::new(n.clone())) as *mut c_void)
+                    .unload_sync(Box::into_raw(Box::new(n)) as *mut c_void)
                     .unwrap();
                 info!("Unload BlobStore");
             }
@@ -334,7 +330,7 @@ impl BlobEngine {
                     .unwrap()
                     .resize_sync(
                         m.blob_size.unwrap(),
-                        Box::into_raw(Box::new(n.clone())) as *mut c_void,
+                        Box::into_raw(Box::new(n)) as *mut c_void,
                     )
                     .unwrap();
                 info!("Resize Blob");
@@ -343,7 +339,7 @@ impl BlobEngine {
                 m.blob
                     .as_ref()
                     .unwrap()
-                    .sync_metadata_sync(Box::into_raw(Box::new(n.clone())) as *mut c_void)
+                    .sync_metadata_sync(Box::into_raw(Box::new(n)) as *mut c_void)
                     .unwrap();
                 info!("Sync Metadata");
             }
@@ -351,7 +347,7 @@ impl BlobEngine {
                 m.blob
                     .as_ref()
                     .unwrap()
-                    .close_sync(Box::into_raw(Box::new(n.clone())) as *mut c_void)
+                    .close_sync(Box::into_raw(Box::new(n)) as *mut c_void)
                     .unwrap();
                 info!("Close Blob");
             }

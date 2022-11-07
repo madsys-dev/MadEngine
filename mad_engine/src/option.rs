@@ -101,7 +101,7 @@ impl EngineOpts {
 
     /// set which bdev and core to run blobstore
     pub fn set_blobstore(&mut self, blobstore_bdev_list: Vec<BsBindOpts>) {
-        self.blobstore_bdev_list = Some(blobstore_bdev_list.clone());
+        self.blobstore_bdev_list = Some(blobstore_bdev_list);
         info!("Set bs success, bs: {:?}", self.blobstore_bdev_list);
     }
 
@@ -112,12 +112,12 @@ impl EngineOpts {
 
     /// set configuration file
     pub fn set_config_file(&mut self, config: String) {
-        self.config_file = config.clone();
+        self.config_file = config;
     }
 
     // start blobfs and blobstore by given configuration
     pub fn start_spdk(&mut self, is_reload: bool) {
-        let app_name = if self.app_name.len() == 0 {
+        let app_name = if self.app_name.is_empty() {
             "None-name app".to_string()
         } else {
             self.app_name.clone()
@@ -176,7 +176,7 @@ impl EngineOpts {
         // register a shutdown poller
         // this is not a proper way to let user send shutdown signal
         *shutdown_poller.lock().unwrap() = Poller::register(move || {
-            if *shutdown_sig.lock().unwrap() == true {
+            if *shutdown_sig.lock().unwrap() {
                 info!("shutdown spdk environment");
                 shutdown_fs.lock().unwrap().unload_sync().unwrap();
                 shutdown_poller_copy.lock().unwrap().unregister();
@@ -241,7 +241,7 @@ impl EngineOpts {
     /// call ready after start spdk to wait for blobfs if needed
     pub fn ready(&self) {
         loop {
-            if (*self.fsflag.lock().unwrap() == true) && (*self.bsflag.lock().unwrap() == true) {
+            if *self.fsflag.lock().unwrap() && *self.bsflag.lock().unwrap() {
                 break;
             }
         }
@@ -256,12 +256,12 @@ impl EngineOpts {
     pub fn create_be(&self) -> BlobEngine {
         let bs_lock = self.blobstores.lock().unwrap();
         let bs_list = self.blobstore_bdev_list.clone().unwrap();
-        return BlobEngine::new(
+        BlobEngine::new(
             &bs_list[0].bdev_name.clone(),
             bs_list[0].core,
             512,
             bs_lock[0].clone(),
-        );
+        )
     }
 }
 
@@ -272,20 +272,11 @@ fn build_blobstore(arg: *mut c_void) {
     let mut bs_dev =
         blob_bdev::BlobStoreBDev::create(bdev.into_string().unwrap().as_str()).unwrap();
     if !is_reload {
-        blob::Blobstore::init_sync(
-            &mut bs_dev,
-            Box::into_raw(Box::new((bs.clone(), n.clone()))) as *mut c_void,
-        )
-        .unwrap();
+        blob::Blobstore::init_sync(&mut bs_dev, Box::into_raw(Box::new((bs, n))) as *mut c_void)
+            .unwrap();
     } else if is_reload {
-        blob::Blobstore::load_sync(
-            &mut bs_dev,
-            Box::into_raw(Box::new((bs.clone(), n.clone()))) as *mut c_void,
-        )
-        .unwrap();
-    }
-    if bs.lock().unwrap().ptr.is_null() {
-        error!("error is accepted");
+        blob::Blobstore::load_sync(&mut bs_dev, Box::into_raw(Box::new((bs, n))) as *mut c_void)
+            .unwrap();
     }
     info!("blob store initilize success");
 }

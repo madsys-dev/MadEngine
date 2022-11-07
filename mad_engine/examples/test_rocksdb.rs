@@ -34,9 +34,9 @@ fn main() {
             .unwrap();
     });
 
-    let ff3 = fsflag.clone();
-    let fs3 = fs.clone();
-    let shutdown3 = shutdown.clone();
+    let ff3 = fsflag;
+    let fs3 = fs;
+    let shutdown3 = shutdown;
 
     user_app(ff3, fs3, shutdown3).unwrap();
 
@@ -50,7 +50,7 @@ fn user_app(
     shutdown: Arc<Mutex<bool>>,
 ) -> Result<()> {
     loop {
-        if *fflag.lock().unwrap() == true {
+        if *fflag.lock().unwrap() {
             break;
         }
     }
@@ -133,7 +133,7 @@ async fn async_main(
     let shutdown_poller_copy = shutdown_poller.clone();
 
     *shutdown_poller.lock().unwrap() = Poller::register(move || {
-        if *shutdown_copy.lock().unwrap() == true {
+        if *shutdown_copy.lock().unwrap() {
             info!("shutdown poller receive shutdown signal");
             shutdown_fs.lock().unwrap().unload_sync().unwrap();
             info!("unload fs success");
